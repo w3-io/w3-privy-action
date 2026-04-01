@@ -115,6 +115,34 @@ async function run() {
         result = await request("POST", "/users/wallet/address", { address });
         break;
 
+      case "get-user-by-discord":
+        result = await request("POST", "/users/discord/username", parseBody());
+        break;
+
+      case "get-user-by-telegram-id":
+        result = await request(
+          "POST",
+          "/users/telegram/telegram_user_id",
+          parseBody(),
+        );
+        break;
+
+      case "get-user-by-telegram-username":
+        result = await request("POST", "/users/telegram/username", parseBody());
+        break;
+
+      case "get-user-by-farcaster":
+        result = await request("POST", "/users/farcaster/fid", parseBody());
+        break;
+
+      case "get-user-by-instagram":
+        result = await request(
+          "POST",
+          "/users/instagram/username",
+          parseBody(),
+        );
+        break;
+
       case "set-user-metadata":
         if (!userId) throw new Error("user-id is required");
         result = await request(
@@ -190,6 +218,62 @@ async function run() {
         );
         break;
 
+      case "create-custodial-wallet":
+        result = await request("POST", "/custodial_wallets", parseBody());
+        break;
+
+      case "authenticate-wallet":
+        result = await request("POST", "/wallets/authenticate", parseBody());
+        break;
+
+      case "create-wallet-update-intent":
+        if (!walletId) throw new Error("wallet-id is required");
+        result = await request(
+          "PATCH",
+          `/intents/wallets/${walletId}`,
+          parseBody(),
+        );
+        break;
+
+      case "list-wallet-transactions":
+        if (!walletId) throw new Error("wallet-id is required");
+        result = await request(
+          "GET",
+          `/wallets/${walletId}/transactions${qs({ cursor, limit })}`,
+        );
+        break;
+
+      case "transfer":
+        if (!walletId) throw new Error("wallet-id is required");
+        result = await request(
+          "POST",
+          `/wallets/${walletId}/transfer`,
+          parseBody(),
+        );
+        break;
+
+      case "swap":
+        if (!walletId) throw new Error("wallet-id is required");
+        result = await request(
+          "POST",
+          `/wallets/${walletId}/swap`,
+          parseBody(),
+        );
+        break;
+
+      case "get-swap-quote":
+        result = await request(
+          "GET",
+          `/swap/quote${qs({
+            wallet_id: walletId,
+            from_token: core.getInput("from-token") || "",
+            to_token: core.getInput("to-token") || "",
+            amount: core.getInput("amount") || "",
+            chain: core.getInput("chain") || "",
+          })}`,
+        );
+        break;
+
       // =================================================================
       // WALLET RPC — Signing and Transactions
       // =================================================================
@@ -261,6 +345,53 @@ async function run() {
         if (!walletId) throw new Error("wallet-id is required");
         result = await request("POST", `/wallets/${walletId}/rpc`, {
           method: "secp256k1_sign",
+          params: parseBody(),
+        });
+        break;
+      }
+
+      case "eth-sign-7702": {
+        if (!walletId) throw new Error("wallet-id is required");
+        result = await request("POST", `/wallets/${walletId}/rpc`, {
+          method: "eth_sign7702Authorization",
+          params: parseBody(),
+        });
+        break;
+      }
+
+      case "eth-sign-user-operation": {
+        if (!walletId) throw new Error("wallet-id is required");
+        const rpcBody = {
+          method: "eth_signUserOperation",
+          params: parseBody(),
+        };
+        if (caip2) rpcBody.params.caip2 = caip2;
+        result = await request("POST", `/wallets/${walletId}/rpc`, rpcBody);
+        break;
+      }
+
+      case "bitcoin-sign-psbt": {
+        if (!walletId) throw new Error("wallet-id is required");
+        result = await request("POST", `/wallets/${walletId}/rpc`, {
+          method: "signPsbt",
+          params: parseBody(),
+        });
+        break;
+      }
+
+      case "spark-transfer": {
+        if (!walletId) throw new Error("wallet-id is required");
+        result = await request("POST", `/wallets/${walletId}/rpc`, {
+          method: "transfer",
+          params: parseBody(),
+        });
+        break;
+      }
+
+      case "spark-transfer-tokens": {
+        if (!walletId) throw new Error("wallet-id is required");
+        result = await request("POST", `/wallets/${walletId}/rpc`, {
+          method: "transferTokens",
           params: parseBody(),
         });
         break;
@@ -463,6 +594,31 @@ async function run() {
         );
         break;
 
+      case "update-kyc":
+        if (!userId) throw new Error("user-id is required");
+        result = await request(
+          "PATCH",
+          `/users/${userId}/fiat/kyc`,
+          parseBody(),
+        );
+        break;
+
+      case "create-fiat-tos":
+        if (!userId) throw new Error("user-id is required");
+        result = await request(
+          "POST",
+          `/users/${userId}/fiat/tos`,
+          parseBody(),
+        );
+        break;
+
+      case "list-fiat-transactions":
+        result = await request(
+          "GET",
+          `/fiat/transactions${qs({ cursor, limit })}`,
+        );
+        break;
+
       // =================================================================
       // CONDITION SETS
       // =================================================================
@@ -496,6 +652,123 @@ async function run() {
         result = await request(
           "DELETE",
           `/condition-sets/${core.getInput("condition-set-id")}`,
+        );
+        break;
+
+      // =================================================================
+      // CONDITION SET ITEMS
+      // =================================================================
+
+      case "add-condition-set-items":
+        if (!core.getInput("condition-set-id"))
+          throw new Error("condition-set-id is required");
+        result = await request(
+          "POST",
+          `/condition-sets/${core.getInput("condition-set-id")}/items`,
+          parseBody(),
+        );
+        break;
+
+      case "list-condition-set-items":
+        if (!core.getInput("condition-set-id"))
+          throw new Error("condition-set-id is required");
+        result = await request(
+          "GET",
+          `/condition-sets/${core.getInput("condition-set-id")}/items${qs({ cursor, limit })}`,
+        );
+        break;
+
+      case "replace-condition-set-items":
+        if (!core.getInput("condition-set-id"))
+          throw new Error("condition-set-id is required");
+        result = await request(
+          "PATCH",
+          `/condition-sets/${core.getInput("condition-set-id")}/items`,
+          parseBody(),
+        );
+        break;
+
+      case "delete-condition-set-item":
+        if (!core.getInput("condition-set-id"))
+          throw new Error("condition-set-id is required");
+        if (!core.getInput("item-id"))
+          throw new Error("item-id is required");
+        result = await request(
+          "DELETE",
+          `/condition-sets/${core.getInput("condition-set-id")}/items/${core.getInput("item-id")}`,
+        );
+        break;
+
+      // =================================================================
+      // ALLOWLIST
+      // =================================================================
+
+      case "add-allowlist-entry":
+        result = await request(
+          "POST",
+          `/apps/${appId}/allowlist`,
+          parseBody(),
+        );
+        break;
+
+      case "list-allowlist":
+        result = await request("GET", `/apps/${appId}/allowlist`);
+        break;
+
+      case "delete-allowlist-entry":
+        if (!core.getInput("entry-id"))
+          throw new Error("entry-id is required");
+        result = await request(
+          "DELETE",
+          `/apps/${appId}/allowlist/${core.getInput("entry-id")}`,
+        );
+        break;
+
+      // =================================================================
+      // AGGREGATIONS
+      // =================================================================
+
+      case "create-aggregation":
+        result = await request("POST", "/aggregations", parseBody());
+        break;
+
+      case "get-aggregation":
+        if (!core.getInput("aggregation-id"))
+          throw new Error("aggregation-id is required");
+        result = await request(
+          "GET",
+          `/aggregations/${core.getInput("aggregation-id")}`,
+        );
+        break;
+
+      case "delete-aggregation":
+        if (!core.getInput("aggregation-id"))
+          throw new Error("aggregation-id is required");
+        result = await request(
+          "DELETE",
+          `/aggregations/${core.getInput("aggregation-id")}`,
+        );
+        break;
+
+      // =================================================================
+      // YIELD — Additional
+      // =================================================================
+
+      case "get-claim":
+        if (!core.getInput("claim-id"))
+          throw new Error("claim-id is required");
+        result = await request(
+          "GET",
+          `/ethereum_yield/claims/${core.getInput("claim-id")}`,
+        );
+        break;
+
+      case "get-sweep":
+        if (!core.getInput("sweep-id"))
+          throw new Error("sweep-id is required");
+        result = await request(
+          "GET",
+          `/ethereum_yield/sweeps/${core.getInput("sweep-id")}`,
         );
         break;
 
