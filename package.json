@@ -1,0 +1,13 @@
+{
+  "name": "w3-privy-action",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Privy wallet infrastructure, user management, signing, policies, yield, and fiat for W3 workflows",
+  "main": "src/index.js",
+  "scripts": {
+    "build": "npx @vercel/ncc build src/index.js -o dist"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1"
+  }
+}
