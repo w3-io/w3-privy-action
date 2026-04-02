@@ -1,6 +1,6 @@
 # W3 Privy Action
 
-Privy wallet infrastructure for W3 workflows. 54 commands covering user management, wallet creation, EVM and Solana signing, transaction policies, key quorums, ERC-4626 yield vaults, and fiat/KYC operations.
+Privy wallet infrastructure for W3 workflows. 106 commands covering users, wallets, EVM/Solana/Bitcoin signing, transfers, swaps, transaction policies, key quorums, intents, ERC-4626 yield vaults, fiat/KYC, condition sets, allowlist, and aggregations.
 
 ## Why W3 + Privy
 
