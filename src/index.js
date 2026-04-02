@@ -59,7 +59,7 @@ async function run() {
       try { data = JSON.parse(text); } catch { data = text; }
       if (!res.ok) {
         const msg = typeof data === "object" ? JSON.stringify(data) : data;
-        throw new Error(`${method} ${path} returned ${res.status}: ${msg.slice(0, 200)}`);
+        throw new Error(`${method} ${path} returned ${res.status}: ${msg}`);
       }
       return data;
     }
