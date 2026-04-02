@@ -1,15 +1,40 @@
 # W3 Privy Action
 
-Privy wallet infrastructure for W3 workflows. 106 commands covering users, wallets, EVM/Solana/Bitcoin signing, transfers, swaps, transaction policies, key quorums, intents, ERC-4626 yield vaults, fiat/KYC, condition sets, allowlist, and aggregations.
+Privy wallet infrastructure -- users, wallets, EVM/Solana/Bitcoin signing, policies, key quorums, intents, yield vaults, and fiat/KYC for W3 workflows.
 
-## Why W3 + Privy
+## Quick Start
 
-Privy manages per-user wallets and signing keys. W3 makes operations on those wallets **verifiable, auditable, and automated**:
+```yaml
+- uses: w3/privy@v1
+  id: user
+  with:
+    command: create-user
+    app-id: ${{ secrets.PRIVY_APP_ID }}
+    app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+    body: |
+      {
+        "create_ethereum_wallet": true,
+        "linked_accounts": [
+          {"type": "email", "address": "alice@example.com"}
+        ]
+      }
 
-- **Verified execution:** Batch operations across user wallets go through validator consensus — not a single server
-- **Receipted transactions:** Every signing and transfer produces a cryptographic receipt anchored to L1
-- **Cross-system orchestration:** Combine Privy wallets with Pyth prices, Chainalysis screening, Stripe payments, and MongoDB state in verified workflows
-- **Scheduled automation:** Auto-compound yield, rebalance portfolios, process batch airdrops on a cron schedule
+- uses: w3/privy@v1
+  with:
+    command: eth-send-transaction
+    app-id: ${{ secrets.PRIVY_APP_ID }}
+    app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+    wallet-id: ${{ fromJson(steps.user.outputs.result).wallet.id }}
+    caip2: "eip155:1"
+    body: |
+      {
+        "transaction": {
+          "to": "0xRecipient",
+          "value": "0x2386F26FC10000",
+          "type": 2
+        }
+      }
+```
 
 ## Commands
 
@@ -39,7 +64,7 @@ Privy manages per-user wallets and signing keys. W3 makes operations on those wa
 | `get-wallet-balance` | Get wallet balance (native or token) |
 | `export-wallet` | Export wallet private key (HPKE-encrypted) |
 
-### Signing — Ethereum (5)
+### Signing -- Ethereum (5)
 
 | Command | Description |
 |---------|-------------|
@@ -49,7 +74,7 @@ Privy manages per-user wallets and signing keys. W3 makes operations on those wa
 | `eth-sign-typed-data` | EIP-712 typed data signing |
 | `raw-sign` | Raw secp256k1 signature over a hash |
 
-### Signing — Solana (3)
+### Signing -- Solana (3)
 
 | Command | Description |
 |---------|-------------|
@@ -122,117 +147,46 @@ Privy manages per-user wallets and signing keys. W3 makes operations on those wa
 | `update-condition-set` | Update a condition set |
 | `delete-condition-set` | Delete a condition set |
 
-## Usage
+## Inputs
 
-### Create a User with a Wallet
+| Name | Required | Default | Description |
+|------|----------|---------|-------------|
+| `command` | Yes | | Operation to perform (54 commands) |
+| `app-id` | Yes | | Privy App ID |
+| `app-secret` | Yes | | Privy App Secret |
+| `api-url` | No | `https://api.privy.io/v1` | Privy API base URL |
+| `body` | No | | Request body as JSON |
+| `user-id` | No | | User ID (Privy DID) |
+| `wallet-id` | No | | Wallet ID |
+| `policy-id` | No | | Policy ID |
+| `rule-id` | No | | Rule ID (within a policy) |
+| `quorum-id` | No | | Key quorum ID |
+| `intent-id` | No | | Intent ID |
+| `transaction-id` | No | | Transaction ID |
+| `vault-id` | No | | ERC-4626 vault ID |
+| `condition-set-id` | No | | Condition set ID |
+| `chain-type` | No | | Chain type (ethereum, solana, bitcoin-segwit, etc.) |
+| `address` | No | | Blockchain address |
+| `email` | No | | User email |
+| `phone` | No | | User phone number |
+| `caip2` | No | | CAIP-2 chain identifier (e.g. `eip155:1`) |
+| `method` | No | | RPC method name |
+| `cursor` | No | | Pagination cursor |
+| `limit` | No | | Page size (max 100) |
+| `idempotency-key` | No | | Idempotency key for write operations |
+| `chain` | No | | Chain for balance queries |
+| `token` | No | | Token address for balance queries |
+| `asset` | No | | Asset type for balance queries |
+| `provider` | No | | KYC provider (`bridge` or `bridge-sandbox`) |
 
-```yaml
-- uses: w3/privy@v1
-  id: user
-  with:
-    command: create-user
-    app-id: ${{ secrets.PRIVY_APP_ID }}
-    app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-    body: |
-      {
-        "create_ethereum_wallet": true,
-        "linked_accounts": [
-          {"type": "email", "address": "alice@example.com"}
-        ]
-      }
-```
+## Outputs
 
-### Send a Transaction from a User Wallet
-
-```yaml
-- uses: w3/privy@v1
-  with:
-    command: eth-send-transaction
-    app-id: ${{ secrets.PRIVY_APP_ID }}
-    app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-    wallet-id: ${{ steps.wallet.outputs.result.id }}
-    caip2: "eip155:43114"
-    body: |
-      {
-        "transaction": {
-          "to": "0xRecipient",
-          "value": "0x2386F26FC10000",
-          "type": 2
-        }
-      }
-```
-
-### Batch Airdrop to User Wallets
-
-```yaml
-- name: List user wallets
-  id: wallets
-  uses: w3/privy@v1
-  with:
-    command: list-wallets
-    app-id: ${{ secrets.PRIVY_APP_ID }}
-    app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-    chain-type: ethereum
-
-# For each wallet, send tokens via Privy's signing
-- name: Airdrop to first wallet
-  uses: w3/privy@v1
-  with:
-    command: eth-send-transaction
-    app-id: ${{ secrets.PRIVY_APP_ID }}
-    app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-    wallet-id: ${{ fromJson(steps.wallets.outputs.result).data[0].id }}
-    body: |
-      {
-        "transaction": {
-          "to": "0xTokenContract",
-          "data": "0xa9059cbb..."
-        }
-      }
-```
-
-### Auto-Compound Yield
-
-```yaml
-name: auto-compound
-on:
-  schedule:
-    cron: "0 0 * * 0"
-
-jobs:
-  compound:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Claim rewards
-        uses: w3/privy@v1
-        with:
-          command: claim-yield
-          app-id: ${{ secrets.PRIVY_APP_ID }}
-          app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          body: '{"wallet_id": "...", "vault_id": "..."}'
-
-      - name: Re-deposit
-        uses: w3/privy@v1
-        with:
-          command: deposit-vault
-          app-id: ${{ secrets.PRIVY_APP_ID }}
-          app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          body: '{"wallet_id": "...", "vault_id": "...", "amount": "..."}'
-```
+| Name | Description |
+|------|-------------|
+| `result` | Command result as JSON string |
 
 ## Authentication
 
-Privy uses Basic auth with your App ID and App Secret:
+Privy uses Basic auth with your App ID and App Secret (`Authorization: Basic base64(app_id:app_secret)`). Get credentials at the Privy Dashboard under App Settings > Basics.
 
-```
-Authorization: Basic base64(app_id:app_secret)
-privy-app-id: your_app_id
-```
-
-Get credentials at the Privy Dashboard under App Settings > Basics.
-
-## Supported Chains
-
-Wallets: Ethereum, Solana, Bitcoin (segwit), Cosmos, Stellar, Sui, Aptos, Tron, NEAR, TON, Starknet
-
-Signing: EVM (all EIP-155 chains via CAIP-2), Solana, Spark (Bitcoin L2)
+Supported wallet chains: Ethereum, Solana, Bitcoin (segwit), Cosmos, Stellar, Sui, Aptos, Tron, NEAR, TON, Starknet. Signing supports all EVM chains via CAIP-2 identifiers, Solana, and Spark (Bitcoin L2).
