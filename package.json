@@ -3,11 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "description": "Privy wallet infrastructure, user management, signing, policies, yield, and fiat for W3 workflows",
+  "type": "module",
   "main": "src/index.js",
   "scripts": {
     "build": "npx @vercel/ncc build src/index.js -o dist"
   },
   "dependencies": {
-    "@actions/core": "^1.11.1"
+    "@actions/core": "^1.11.1",
+    "@w3-io/action-core": "^0.3.0"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.4"
   }
 }
