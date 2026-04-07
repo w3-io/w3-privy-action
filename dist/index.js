@@ -28001,6 +28001,49 @@ function createMockCore() {
 
 
 
+const DEFAULT_TIMEOUT_MS = 30_000
+const MAX_RETRIES = 3
+const RETRY_DELAY_MS = 1000
+
+/**
+ * Fetch with timeout, retry on 429/5xx, and exponential backoff.
+ * Returns the raw Response — caller handles body parsing.
+ */
+async function fetchWithRetry(url, opts, retries = MAX_RETRIES) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
+
+    try {
+      const res = await fetch(url, { ...opts, signal: controller.signal })
+      clearTimeout(timer)
+
+      // Retry on 429 (rate limit) and 5xx (server error)
+      if ((res.status === 429 || res.status >= 500) && attempt < retries) {
+        const retryAfter = res.headers.get('retry-after')
+        const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : NaN
+        const delay = Number.isFinite(retrySeconds)
+          ? retrySeconds * 1000
+          : RETRY_DELAY_MS * 2 ** attempt
+        await new Promise(r => setTimeout(r, delay))
+        continue
+      }
+
+      return res
+    } catch (e) {
+      clearTimeout(timer)
+      if (attempt < retries && (e.name === 'AbortError' || e.code === 'UND_ERR_CONNECT_TIMEOUT')) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS * 2 ** attempt))
+        continue
+      }
+      if (e.name === 'AbortError') {
+        throw new error_W3ActionError('TIMEOUT', `Request timed out after ${DEFAULT_TIMEOUT_MS}ms: ${url}`)
+      }
+      throw e
+    }
+  }
+}
+
 const router = createCommandRouter({
   // ── Users ──────────────────────────────────────────────────────
   'create-user': async () => {
@@ -28009,7 +28052,7 @@ const router = createCommandRouter({
   },
   'get-user': async () => {
     const { req, userId } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('GET', `/users/${userId}`))
   },
   'list-users': async () => {
@@ -28018,7 +28061,7 @@ const router = createCommandRouter({
   },
   'delete-user': async () => {
     const { req, userId } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('DELETE', `/users/${userId}`))
   },
   'search-users': async () => {
@@ -28027,22 +28070,22 @@ const router = createCommandRouter({
   },
   'set-user-metadata': async () => {
     const { req, pb, userId } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('POST', `/users/${userId}/custom_metadata`, pb()))
   },
   'link-account': async () => {
     const { req, pb, userId } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('POST', `/users/${userId}/accounts`, pb()))
   },
   'unlink-account': async () => {
     const { req, pb, userId } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('POST', `/users/${userId}/accounts/unlink`, pb()))
   },
   'pregenerate-wallets': async () => {
     const { req, pb, userId, body, chainType } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput(
       'result',
       await req('POST', `/users/${userId}/wallets`, body ? pb() : { wallets: [{ chain_type: chainType || 'ethereum' }] }),
@@ -28126,7 +28169,7 @@ const router = createCommandRouter({
   },
   'get-wallet': async () => {
     const { req, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('GET', `/wallets/${walletId}`))
   },
   'list-wallets': async () => {
@@ -28139,17 +28182,17 @@ const router = createCommandRouter({
   },
   'update-wallet': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('PATCH', `/wallets/${walletId}`, pb()))
   },
   'get-wallet-balance': async () => {
     const { req, qs, walletId, chain, asset, token } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('GET', `/wallets/${walletId}/balance${qs({ chain, asset, token })}`))
   },
   'export-wallet': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/export`, pb()))
   },
   'authenticate-wallet': async () => {
@@ -28158,61 +28201,61 @@ const router = createCommandRouter({
   },
   'get-wallet-action': async () => {
     const { req, walletId, actionId } = setup()
-    if (!walletId || !actionId) throw new Error('wallet-id and action-id required')
+    if (!walletId || !actionId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id and action-id required')
     setJsonOutput('result', await req('GET', `/wallets/${walletId}/actions/${actionId}`))
   },
   'get-wallet-transactions': async () => {
     const { req, qs, walletId, cursor, limit, chain } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('GET', `/wallets/${walletId}/transactions${qs({ cursor, limit, chain })}`))
   },
   'transfer': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/transfer`, pb()))
   },
   'swap': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/swap`, pb()))
   },
   'get-swap-quote': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/swap/quote`, pb()))
   },
 
   // ── Signing — Ethereum ─────────────────────────────────────────
   'eth-send-transaction': async () => {
     const { req, pb, walletId, caip2 } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     const p = pb(); if (caip2) p.caip2 = caip2
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'eth_sendTransaction', params: p }))
   },
   'eth-sign-transaction': async () => {
     const { req, pb, walletId, caip2 } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     const p = pb(); if (caip2) p.caip2 = caip2
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'eth_signTransaction', params: p }))
   },
   'personal-sign': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'personal_sign', params: pb() }))
   },
   'eth-sign-typed-data': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'eth_signTypedData_v4', params: pb() }))
   },
   'eth-sign-7702': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'eth_sign7702Authorization', params: pb() }))
   },
   'eth-sign-user-operation': async () => {
     const { req, pb, walletId, caip2 } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     const p = pb(); if (caip2) p.caip2 = caip2
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'eth_signUserOperation', params: p }))
   },
@@ -28220,49 +28263,49 @@ const router = createCommandRouter({
   // ── Signing — Solana ───────────────────────────────────────────
   'solana-send-transaction': async () => {
     const { req, pb, walletId, caip2 } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     const p = pb(); if (caip2) p.caip2 = caip2
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'signAndSendTransaction', params: p }))
   },
   'solana-sign-transaction': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'signTransaction', params: pb() }))
   },
   'solana-sign-message': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'signMessage', params: pb() }))
   },
 
   // ── Signing — Bitcoin / Spark ──────────────────────────────────
   'bitcoin-sign-psbt': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'signPsbt', params: pb() }))
   },
   'spark-transfer': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'transfer', params: pb() }))
   },
   'spark-transfer-tokens': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'transferTokens', params: pb() }))
   },
 
   // ── Signing — Raw ──────────────────────────────────────────────
   'raw-sign': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/raw_sign`, pb()))
   },
 
   // ── Transactions ───────────────────────────────────────────────
   'get-transaction': async () => {
     const { req, transactionId } = setup()
-    if (!transactionId) throw new Error('transaction-id required')
+    if (!transactionId) throw new error_W3ActionError('MISSING_INPUT', 'transaction-id required')
     setJsonOutput('result', await req('GET', `/transactions/${transactionId}`))
   },
 
@@ -28273,37 +28316,37 @@ const router = createCommandRouter({
   },
   'get-policy': async () => {
     const { req, policyId } = setup()
-    if (!policyId) throw new Error('policy-id required')
+    if (!policyId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id required')
     setJsonOutput('result', await req('GET', `/policies/${policyId}`))
   },
   'update-policy': async () => {
     const { req, pb, policyId } = setup()
-    if (!policyId) throw new Error('policy-id required')
+    if (!policyId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id required')
     setJsonOutput('result', await req('PATCH', `/policies/${policyId}`, pb()))
   },
   'delete-policy': async () => {
     const { req, policyId } = setup()
-    if (!policyId) throw new Error('policy-id required')
+    if (!policyId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id required')
     setJsonOutput('result', await req('DELETE', `/policies/${policyId}`))
   },
   'create-rule': async () => {
     const { req, pb, policyId } = setup()
-    if (!policyId) throw new Error('policy-id required')
+    if (!policyId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id required')
     setJsonOutput('result', await req('POST', `/policies/${policyId}/rules`, pb()))
   },
   'get-rule': async () => {
     const { req, policyId, ruleId } = setup()
-    if (!policyId || !ruleId) throw new Error('policy-id and rule-id required')
+    if (!policyId || !ruleId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id and rule-id required')
     setJsonOutput('result', await req('GET', `/policies/${policyId}/rules/${ruleId}`))
   },
   'update-rule': async () => {
     const { req, pb, policyId, ruleId } = setup()
-    if (!policyId || !ruleId) throw new Error('policy-id and rule-id required')
+    if (!policyId || !ruleId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id and rule-id required')
     setJsonOutput('result', await req('PATCH', `/policies/${policyId}/rules/${ruleId}`, pb()))
   },
   'delete-rule': async () => {
     const { req, policyId, ruleId } = setup()
-    if (!policyId || !ruleId) throw new Error('policy-id and rule-id required')
+    if (!policyId || !ruleId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id and rule-id required')
     setJsonOutput('result', await req('DELETE', `/policies/${policyId}/rules/${ruleId}`))
   },
 
@@ -28314,59 +28357,59 @@ const router = createCommandRouter({
   },
   'get-quorum': async () => {
     const { req, quorumId } = setup()
-    if (!quorumId) throw new Error('quorum-id required')
+    if (!quorumId) throw new error_W3ActionError('MISSING_INPUT', 'quorum-id required')
     setJsonOutput('result', await req('GET', `/key_quorums/${quorumId}`))
   },
   'update-quorum': async () => {
     const { req, pb, quorumId } = setup()
-    if (!quorumId) throw new Error('quorum-id required')
+    if (!quorumId) throw new error_W3ActionError('MISSING_INPUT', 'quorum-id required')
     setJsonOutput('result', await req('PATCH', `/key_quorums/${quorumId}`, pb()))
   },
   'delete-quorum': async () => {
     const { req, quorumId } = setup()
-    if (!quorumId) throw new Error('quorum-id required')
+    if (!quorumId) throw new error_W3ActionError('MISSING_INPUT', 'quorum-id required')
     setJsonOutput('result', await req('DELETE', `/key_quorums/${quorumId}`))
   },
 
   // ── Intents ────────────────────────────────────────────────────
   'create-rpc-intent': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/intents/wallets/${walletId}/rpc`, pb()))
   },
   'create-wallet-update-intent': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('PATCH', `/intents/wallets/${walletId}`, pb()))
   },
   'create-policy-update-intent': async () => {
     const { req, pb, policyId } = setup()
-    if (!policyId) throw new Error('policy-id required')
+    if (!policyId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id required')
     setJsonOutput('result', await req('PATCH', `/intents/policies/${policyId}`, pb()))
   },
   'create-rule-intent': async () => {
     const { req, pb, policyId } = setup()
-    if (!policyId) throw new Error('policy-id required')
+    if (!policyId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id required')
     setJsonOutput('result', await req('POST', `/intents/policies/${policyId}/rules`, pb()))
   },
   'update-rule-intent': async () => {
     const { req, pb, policyId, ruleId } = setup()
-    if (!policyId || !ruleId) throw new Error('policy-id and rule-id required')
+    if (!policyId || !ruleId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id and rule-id required')
     setJsonOutput('result', await req('PATCH', `/intents/policies/${policyId}/rules/${ruleId}`, pb()))
   },
   'delete-rule-intent': async () => {
     const { req, pb, policyId, ruleId } = setup()
-    if (!policyId || !ruleId) throw new Error('policy-id and rule-id required')
+    if (!policyId || !ruleId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id and rule-id required')
     setJsonOutput('result', await req('DELETE', `/intents/policies/${policyId}/rules/${ruleId}`))
   },
   'create-quorum-update-intent': async () => {
     const { req, pb, quorumId } = setup()
-    if (!quorumId) throw new Error('quorum-id required')
+    if (!quorumId) throw new error_W3ActionError('MISSING_INPUT', 'quorum-id required')
     setJsonOutput('result', await req('PATCH', `/intents/key_quorums/${quorumId}`, pb()))
   },
   'get-intent': async () => {
     const { req, intentId } = setup()
-    if (!intentId) throw new Error('intent-id required')
+    if (!intentId) throw new error_W3ActionError('MISSING_INPUT', 'intent-id required')
     setJsonOutput('result', await req('GET', `/intents/${intentId}`))
   },
   'list-intents': async () => {
@@ -28377,89 +28420,89 @@ const router = createCommandRouter({
   // ── Yield (ERC-4626) ───────────────────────────────────────────
   'get-vault': async () => {
     const { req, vaultId } = setup()
-    if (!vaultId) throw new Error('vault-id required')
+    if (!vaultId) throw new error_W3ActionError('MISSING_INPUT', 'vault-id required')
     setJsonOutput('result', await req('GET', `/ethereum_yield_vault/${vaultId}`))
   },
   'get-vault-position': async () => {
     const { req, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('GET', `/wallets/${walletId}/ethereum_yield_vault`))
   },
   'deposit-vault': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/ethereum_yield_deposit`, pb()))
   },
   'withdraw-vault': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/ethereum_yield_withdraw`, pb()))
   },
   'claim-yield': async () => {
     const { req, pb, walletId } = setup()
-    if (!walletId) throw new Error('wallet-id required')
+    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
     setJsonOutput('result', await req('POST', `/wallets/${walletId}/ethereum_yield_claim`, pb()))
   },
   'get-claim': async () => {
     const { req, claimId } = setup()
-    if (!claimId) throw new Error('claim-id required')
+    if (!claimId) throw new error_W3ActionError('MISSING_INPUT', 'claim-id required')
     setJsonOutput('result', await req('GET', `/ethereum_yield_claim/${claimId}`))
   },
   'get-sweep': async () => {
     const { req, sweepId } = setup()
-    if (!sweepId) throw new Error('sweep-id required')
+    if (!sweepId) throw new error_W3ActionError('MISSING_INPUT', 'sweep-id required')
     setJsonOutput('result', await req('GET', `/ethereum_yield_sweep/${sweepId}`))
   },
 
   // ── Fiat / KYC ─────────────────────────────────────────────────
   'start-kyc': async () => {
     const { req, pb, userId } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('POST', `/users/${userId}/fiat/kyc`, pb()))
   },
   'get-kyc-status': async () => {
     const { req, qs, userId, provider } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('GET', `/users/${userId}/fiat/kyc${qs({ provider })}`))
   },
   'update-kyc': async () => {
     const { req, pb, userId } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('PATCH', `/users/${userId}/fiat/kyc`, pb()))
   },
   'get-kyc-link': async () => {
     const { req, pb, userId, body } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('POST', `/users/${userId}/fiat/kyc_link`, body ? pb() : {}))
   },
   'create-fiat-tos': async () => {
     const { req, pb, userId } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('POST', `/users/${userId}/fiat/tos`, pb()))
   },
   'create-fiat-account': async () => {
     const { req, pb, userId } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('POST', `/users/${userId}/fiat/accounts`, pb()))
   },
   'list-fiat-accounts': async () => {
     const { req, userId } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('GET', `/users/${userId}/fiat/accounts`))
   },
   'initiate-onramp': async () => {
     const { req, pb, userId } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('POST', `/users/${userId}/fiat/onramp`, pb()))
   },
   'initiate-offramp': async () => {
     const { req, pb, userId } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('POST', `/users/${userId}/fiat/offramp`, pb()))
   },
   'list-fiat-transactions': async () => {
     const { req, pb, userId, body } = setup()
-    if (!userId) throw new Error('user-id required')
+    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
     setJsonOutput('result', await req('POST', `/users/${userId}/fiat/status`, body ? pb() : {}))
   },
 
@@ -28470,42 +28513,42 @@ const router = createCommandRouter({
   },
   'get-condition-set': async () => {
     const { req, conditionSetId } = setup()
-    if (!conditionSetId) throw new Error('condition-set-id required')
+    if (!conditionSetId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id required')
     setJsonOutput('result', await req('GET', `/condition_sets/${conditionSetId}`))
   },
   'update-condition-set': async () => {
     const { req, pb, conditionSetId } = setup()
-    if (!conditionSetId) throw new Error('condition-set-id required')
+    if (!conditionSetId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id required')
     setJsonOutput('result', await req('PATCH', `/condition_sets/${conditionSetId}`, pb()))
   },
   'delete-condition-set': async () => {
     const { req, conditionSetId } = setup()
-    if (!conditionSetId) throw new Error('condition-set-id required')
+    if (!conditionSetId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id required')
     setJsonOutput('result', await req('DELETE', `/condition_sets/${conditionSetId}`))
   },
   'add-condition-set-items': async () => {
     const { req, pb, conditionSetId } = setup()
-    if (!conditionSetId) throw new Error('condition-set-id required')
+    if (!conditionSetId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id required')
     setJsonOutput('result', await req('POST', `/condition_sets/${conditionSetId}/condition_set_items`, pb()))
   },
   'replace-condition-set-items': async () => {
     const { req, pb, conditionSetId } = setup()
-    if (!conditionSetId) throw new Error('condition-set-id required')
+    if (!conditionSetId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id required')
     setJsonOutput('result', await req('PUT', `/condition_sets/${conditionSetId}/condition_set_items`, pb()))
   },
   'list-condition-set-items': async () => {
     const { req, qs, conditionSetId, cursor, limit } = setup()
-    if (!conditionSetId) throw new Error('condition-set-id required')
+    if (!conditionSetId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id required')
     setJsonOutput('result', await req('GET', `/condition_sets/${conditionSetId}/condition_set_items${qs({ cursor, limit })}`))
   },
   'get-condition-set-item': async () => {
     const { req, conditionSetId, itemId } = setup()
-    if (!conditionSetId || !itemId) throw new Error('condition-set-id and item-id required')
+    if (!conditionSetId || !itemId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id and item-id required')
     setJsonOutput('result', await req('GET', `/condition_sets/${conditionSetId}/condition_set_items/${itemId}`))
   },
   'delete-condition-set-item': async () => {
     const { req, conditionSetId, itemId } = setup()
-    if (!conditionSetId || !itemId) throw new Error('condition-set-id and item-id required')
+    if (!conditionSetId || !itemId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id and item-id required')
     setJsonOutput('result', await req('DELETE', `/condition_sets/${conditionSetId}/condition_set_items/${itemId}`))
   },
 
@@ -28520,7 +28563,7 @@ const router = createCommandRouter({
   },
   'delete-allowlist-entry': async () => {
     const { req, appId, entryId } = setup()
-    if (!entryId) throw new Error('entry-id required')
+    if (!entryId) throw new error_W3ActionError('MISSING_INPUT', 'entry-id required')
     setJsonOutput('result', await req('DELETE', `/apps/${appId}/allowlist/${entryId}`))
   },
 
@@ -28531,12 +28574,12 @@ const router = createCommandRouter({
   },
   'get-aggregation': async () => {
     const { req, aggregationId } = setup()
-    if (!aggregationId) throw new Error('aggregation-id required')
+    if (!aggregationId) throw new error_W3ActionError('MISSING_INPUT', 'aggregation-id required')
     setJsonOutput('result', await req('GET', `/aggregations/${aggregationId}`))
   },
   'delete-aggregation': async () => {
     const { req, aggregationId } = setup()
-    if (!aggregationId) throw new Error('aggregation-id required')
+    if (!aggregationId) throw new error_W3ActionError('MISSING_INPUT', 'aggregation-id required')
     setJsonOutput('result', await req('DELETE', `/aggregations/${aggregationId}`))
   },
 })
@@ -28592,16 +28635,19 @@ function setup() {
     if (bodyObj && method !== 'GET' && method !== 'DELETE') {
       opts.body = JSON.stringify(bodyObj)
     }
-    const res = await fetch(url, opts)
+    const res = await fetchWithRetry(url, opts)
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new error_W3ActionError('HTTP_ERROR', `${method} ${path} returned ${res.status}: ${text}`, { statusCode: res.status })
+    }
     if (res.status === 204) return { success: true }
     const text = await res.text()
-    let data
-    try { data = JSON.parse(text) } catch { data = text }
-    if (!res.ok) {
-      const msg = typeof data === 'object' ? JSON.stringify(data) : data
-      throw new Error(`${method} ${path} returned ${res.status}: ${msg}`)
+    if (!text) return { success: true }
+    try {
+      return JSON.parse(text)
+    } catch {
+      throw new error_W3ActionError('INVALID_RESPONSE', `Privy returned unparseable response: ${text.slice(0, 200)}`)
     }
-    return data
   }
 
   function qs(p) {
@@ -28610,7 +28656,7 @@ function setup() {
   }
 
   function pb() {
-    if (!body) throw new Error('body input is required')
+    if (!body) throw new error_W3ActionError('MISSING_INPUT', 'body input is required')
     return JSON.parse(body)
   }
 
