@@ -24,70 +24,70 @@ W3 Privy Action provides wallet infrastructure for W3 workflows -- user manageme
 
 ### Users
 
-| Command | Required Inputs | Description |
-|---------|----------------|-------------|
-| `create-user` | `app-id`, `app-secret`, `body` | Create user with linked accounts and optional wallets |
-| `get-user` | `app-id`, `app-secret`, `user-id` | Get user by Privy DID |
-| `list-users` | `app-id`, `app-secret` | List users (paginated via `cursor`, `limit`) |
-| `delete-user` | `app-id`, `app-secret`, `user-id` | Delete a user |
-| `get-user-by-email` | `app-id`, `app-secret`, `email` | Lookup by email |
-| `get-user-by-wallet` | `app-id`, `app-secret`, `address` | Lookup by wallet address |
-| `set-user-metadata` | `app-id`, `app-secret`, `user-id`, `body` | Set custom metadata |
+| Command              | Required Inputs                           | Description                                           |
+| -------------------- | ----------------------------------------- | ----------------------------------------------------- |
+| `create-user`        | `app-id`, `app-secret`, `body`            | Create user with linked accounts and optional wallets |
+| `get-user`           | `app-id`, `app-secret`, `user-id`         | Get user by Privy DID                                 |
+| `list-users`         | `app-id`, `app-secret`                    | List users (paginated via `cursor`, `limit`)          |
+| `delete-user`        | `app-id`, `app-secret`, `user-id`         | Delete a user                                         |
+| `get-user-by-email`  | `app-id`, `app-secret`, `email`           | Lookup by email                                       |
+| `get-user-by-wallet` | `app-id`, `app-secret`, `address`         | Lookup by wallet address                              |
+| `set-user-metadata`  | `app-id`, `app-secret`, `user-id`, `body` | Set custom metadata                                   |
 
 ### Wallets
 
-| Command | Required Inputs | Description |
-|---------|----------------|-------------|
-| `create-wallet` | `app-id`, `app-secret`, `body` | Create a server wallet |
-| `batch-create-wallets` | `app-id`, `app-secret`, `body` | Create multiple wallets |
-| `get-wallet` | `app-id`, `app-secret`, `wallet-id` | Get wallet details |
-| `list-wallets` | `app-id`, `app-secret` | List wallets (filter by `chain-type`) |
-| `get-wallet-by-address` | `app-id`, `app-secret`, `address`, `chain-type` | Lookup by address |
-| `get-wallet-balance` | `app-id`, `app-secret`, `wallet-id` | Get balance (native or token) |
+| Command                 | Required Inputs                                 | Description                           |
+| ----------------------- | ----------------------------------------------- | ------------------------------------- |
+| `create-wallet`         | `app-id`, `app-secret`, `body`                  | Create a server wallet                |
+| `batch-create-wallets`  | `app-id`, `app-secret`, `body`                  | Create multiple wallets               |
+| `get-wallet`            | `app-id`, `app-secret`, `wallet-id`             | Get wallet details                    |
+| `list-wallets`          | `app-id`, `app-secret`                          | List wallets (filter by `chain-type`) |
+| `get-wallet-by-address` | `app-id`, `app-secret`, `address`, `chain-type` | Lookup by address                     |
+| `get-wallet-balance`    | `app-id`, `app-secret`, `wallet-id`             | Get balance (native or token)         |
 
 Supported chains: Ethereum, Solana, Bitcoin (segwit), Cosmos, Stellar, Sui, Aptos, Tron, NEAR, TON, Starknet.
 
 ### Signing -- Ethereum
 
-| Command | Required Inputs | Description |
-|---------|----------------|-------------|
+| Command                | Required Inputs                                      | Description               |
+| ---------------------- | ---------------------------------------------------- | ------------------------- |
 | `eth-send-transaction` | `app-id`, `app-secret`, `wallet-id`, `caip2`, `body` | Sign and broadcast EVM tx |
 | `eth-sign-transaction` | `app-id`, `app-secret`, `wallet-id`, `caip2`, `body` | Sign without broadcasting |
-| `personal-sign` | `app-id`, `app-secret`, `wallet-id`, `body` | EIP-191 message signing |
-| `eth-sign-typed-data` | `app-id`, `app-secret`, `wallet-id`, `body` | EIP-712 typed data |
-| `raw-sign` | `app-id`, `app-secret`, `wallet-id`, `body` | Raw secp256k1 signature |
+| `personal-sign`        | `app-id`, `app-secret`, `wallet-id`, `body`          | EIP-191 message signing   |
+| `eth-sign-typed-data`  | `app-id`, `app-secret`, `wallet-id`, `body`          | EIP-712 typed data        |
+| `raw-sign`             | `app-id`, `app-secret`, `wallet-id`, `body`          | Raw secp256k1 signature   |
 
 The `caip2` input identifies the chain (e.g. `eip155:1` for Ethereum mainnet, `eip155:43114` for Avalanche).
 
 ### Signing -- Solana
 
-| Command | Required Inputs | Description |
-|---------|----------------|-------------|
-| `solana-send-transaction` | `app-id`, `app-secret`, `wallet-id`, `body` | Sign and broadcast |
+| Command                   | Required Inputs                             | Description               |
+| ------------------------- | ------------------------------------------- | ------------------------- |
+| `solana-send-transaction` | `app-id`, `app-secret`, `wallet-id`, `body` | Sign and broadcast        |
 | `solana-sign-transaction` | `app-id`, `app-secret`, `wallet-id`, `body` | Sign without broadcasting |
-| `solana-sign-message` | `app-id`, `app-secret`, `wallet-id`, `body` | Sign a message |
+| `solana-sign-message`     | `app-id`, `app-secret`, `wallet-id`, `body` | Sign a message            |
 
 ### Policies
 
-| Command | Required Inputs | Description |
-|---------|----------------|-------------|
-| `create-policy` | `app-id`, `app-secret`, `body` | Create a spending/signing policy |
-| `get-policy` | `app-id`, `app-secret`, `policy-id` | Get policy details |
-| `update-policy` | `app-id`, `app-secret`, `policy-id`, `body` | Update a policy |
-| `delete-policy` | `app-id`, `app-secret`, `policy-id` | Delete a policy |
-| `create-rule` | `app-id`, `app-secret`, `policy-id`, `body` | Add a rule to a policy |
-| `update-rule` | `app-id`, `app-secret`, `policy-id`, `rule-id`, `body` | Update a rule |
-| `delete-rule` | `app-id`, `app-secret`, `policy-id`, `rule-id` | Delete a rule |
+| Command         | Required Inputs                                        | Description                      |
+| --------------- | ------------------------------------------------------ | -------------------------------- |
+| `create-policy` | `app-id`, `app-secret`, `body`                         | Create a spending/signing policy |
+| `get-policy`    | `app-id`, `app-secret`, `policy-id`                    | Get policy details               |
+| `update-policy` | `app-id`, `app-secret`, `policy-id`, `body`            | Update a policy                  |
+| `delete-policy` | `app-id`, `app-secret`, `policy-id`                    | Delete a policy                  |
+| `create-rule`   | `app-id`, `app-secret`, `policy-id`, `body`            | Add a rule to a policy           |
+| `update-rule`   | `app-id`, `app-secret`, `policy-id`, `rule-id`, `body` | Update a rule                    |
+| `delete-rule`   | `app-id`, `app-secret`, `policy-id`, `rule-id`         | Delete a rule                    |
 
 ### Other Command Categories
 
-| Category | Count | Examples |
-|----------|-------|---------|
-| Key Quorums | 4 | `create-quorum`, `get-quorum`, `update-quorum` |
-| Intents | 3 | `create-rpc-intent`, `get-intent`, `list-intents` |
-| Yield Vaults | 5 | `deposit-vault`, `withdraw-vault`, `claim-yield` |
-| Fiat / KYC | 6 | `start-kyc`, `initiate-onramp`, `initiate-offramp` |
-| Condition Sets | 4 | `create-condition-set`, `update-condition-set` |
+| Category       | Count | Examples                                           |
+| -------------- | ----- | -------------------------------------------------- |
+| Key Quorums    | 4     | `create-quorum`, `get-quorum`, `update-quorum`     |
+| Intents        | 3     | `create-rpc-intent`, `get-intent`, `list-intents`  |
+| Yield Vaults   | 5     | `deposit-vault`, `withdraw-vault`, `claim-yield`   |
+| Fiat / KYC     | 6     | `start-kyc`, `initiate-onramp`, `initiate-offramp` |
+| Condition Sets | 4     | `create-condition-set`, `update-condition-set`     |
 
 See the [README](../README.md) for the complete reference.
 

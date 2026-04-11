@@ -27495,36 +27495,26 @@ var lib_core = __nccwpck_require__(7484);
 ;// CONCATENATED MODULE: ./node_modules/@w3-io/action-core/dist/input.js
 
 /**
- * Parse a JSON input. Returns the parsed value or undefined if empty.
- * Throws with a clear message if the input contains invalid JSON.
+ * Read an input and parse it as JSON. Returns the parsed value.
+ * Throws if the input is missing (when required) or not valid JSON.
  */
-function parseJsonInput(name) {
-    const raw = core.getInput(name);
-    if (!raw.trim())
+function parseJsonInput(name, options) {
+    const raw = core.getInput(name, options);
+    if (!raw)
         return undefined;
-    try {
-        return JSON.parse(raw);
-    }
-    catch {
-        throw new Error(`Input '${name}' is not valid JSON: ${raw.slice(0, 100)}`);
-    }
+    return JSON.parse(raw);
 }
 /**
- * Get a required input. Throws if missing or empty.
+ * Read a required input. Throws if missing.
  */
 function requireInput(name) {
-    const value = core.getInput(name);
-    if (!value.trim()) {
-        throw new Error(`Required input '${name}' is missing`);
-    }
-    return value;
+    return core.getInput(name, { required: true });
 }
 /**
- * Get an optional input with a default value.
+ * Read an optional input. Returns undefined if empty.
  */
-function getOptionalInput(name, defaultValue = "") {
-    const value = core.getInput(name);
-    return value.trim() || defaultValue;
+function getOptionalInput(name) {
+    return core.getInput(name) || undefined;
 }
 
 ;// CONCATENATED MODULE: ./node_modules/@w3-io/action-core/dist/output.js
@@ -27544,7 +27534,9 @@ function setJsonOutput(name, value) {
  */
 function setOutputs(outputs) {
     for (const [key, value] of Object.entries(outputs)) {
-        setJsonOutput(key, value);
+        if (value != null) {
+            setJsonOutput(key, value);
+        }
     }
 }
 
@@ -27589,82 +27581,35 @@ function handleError(error) {
 ;// CONCATENATED MODULE: ./node_modules/@w3-io/action-core/dist/http.js
 
 /**
- * Make an HTTP request with timeout, retry, and structured errors.
+ * Make an HTTP request with JSON body. Returns parsed JSON response.
  *
- * - Retries on 429 and 5xx with exponential backoff
- * - Parses JSON response automatically
- * - Throws W3ActionError with status code on failure
+ * For partner API clients that don't need the bridge.
  */
 async function request(url, options = {}) {
-    const { method = "GET", headers = {}, body, timeout = 30000, retries = 2, retryDelay = 1000, } = options;
-    const init = {
-        method,
-        headers: {
-            "Content-Type": "application/json",
-            ...headers,
-        },
-        signal: AbortSignal.timeout(timeout),
-    };
-    if (body !== undefined) {
-        init.body = typeof body === "string" ? body : JSON.stringify(body);
-    }
-    let lastError;
-    for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-            const res = await fetch(url, init);
-            const raw = await res.text();
-            let parsed;
-            try {
-                parsed = JSON.parse(raw);
-            }
-            catch {
-                parsed = raw;
-            }
-            const responseHeaders = {};
-            res.headers.forEach((v, k) => {
-                responseHeaders[k] = v;
+    const { method = "GET", headers = {}, body, timeout = 30000 } = options;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+        const response = await fetch(url, {
+            method,
+            headers: {
+                "Content-Type": "application/json",
+                ...headers,
+            },
+            body: body ? JSON.stringify(body) : undefined,
+            signal: controller.signal,
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => "");
+            throw new W3ActionError("HTTP_ERROR", `${response.status}: ${text}`, {
+                statusCode: response.status,
             });
-            if (!res.ok) {
-                // Retry on 429 (rate limit) and 5xx (server error)
-                if ((res.status === 429 || res.status >= 500) &&
-                    attempt < retries) {
-                    await sleep(retryDelay * 2 ** attempt);
-                    continue;
-                }
-                throw new W3ActionError("HTTP_ERROR", `${method} ${url}: ${res.status}`, {
-                    statusCode: res.status,
-                    details: parsed,
-                });
-            }
-            return { status: res.status, headers: responseHeaders, body: parsed, raw };
         }
-        catch (error) {
-            if (error instanceof W3ActionError)
-                throw error;
-            lastError = error instanceof Error ? error : new Error(String(error));
-            if (attempt < retries) {
-                await sleep(retryDelay * 2 ** attempt);
-                continue;
-            }
-        }
+        return (await response.json());
     }
-    throw new W3ActionError("REQUEST_FAILED", `${method} ${url}: ${lastError?.message ?? "unknown error"}`);
-}
-function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-/**
- * Convenience: add API key auth header.
- */
-function apiKeyAuth(key, headerName = "Authorization", prefix = "Bearer") {
-    return { [headerName]: `${prefix} ${key}` };
-}
-/**
- * Convenience: add basic auth header.
- */
-function basicAuth(username, password) {
-    const encoded = Buffer.from(`${username}:${password}`).toString("base64");
-    return { Authorization: `Basic ${encoded}` };
+    finally {
+        clearTimeout(timer);
+    }
 }
 
 ;// CONCATENATED MODULE: ./node_modules/@w3-io/action-core/dist/command.js
@@ -27708,8 +27653,17 @@ function createCommandRouter(commands) {
  *   - $W3_BRIDGE_URL    → TCP URL (macOS Docker Desktop fallback)
  *
  * Usage:
- *   import { bridge } from "@w3-io/action-core";
+ *   import { bridge, ethereum } from "@w3-io/action-core";
  *
+ *   // Typed helpers (recommended — autocomplete + type checking):
+ *   const receipt = await ethereum.callContract({
+ *     contract: "0x...",
+ *     method: "deposit(uint256)",
+ *     args: ["1000000"],
+ *     gasMultiplier: "1.5",
+ *   });
+ *
+ *   // Generic (full control):
  *   const balance = await bridge.chain("ethereum", "get-balance", {
  *     address: "0x...",
  *   });
@@ -27720,29 +27674,17 @@ function createCommandRouter(commands) {
 // ---------------------------------------------------------------------------
 // Transport
 // ---------------------------------------------------------------------------
-/**
- * Resolve the bridge endpoint from environment variables.
- *
- * Returns a fetch-compatible URL and optional Unix socket path.
- */
 function resolveEndpoint() {
     const bridgeUrl = process.env.W3_BRIDGE_URL;
     if (bridgeUrl) {
         return { url: bridgeUrl };
     }
     const socketPath = process.env.W3_BRIDGE_SOCKET ?? "/var/run/w3/bridge.sock";
-    // Node's fetch doesn't support Unix sockets natively.
-    // We use http.request for Unix socket transport.
     return { url: "http://localhost", socketPath };
 }
-/**
- * Make an HTTP request to the bridge. Handles both TCP and Unix socket
- * transports transparently.
- */
 async function bridgeRequest(path, body) {
     const { url, socketPath } = resolveEndpoint();
     if (socketPath) {
-        // Unix socket transport via Node's http module
         const http = await Promise.resolve(/* import() */).then(__nccwpck_require__.t.bind(__nccwpck_require__, 7067, 19));
         return new Promise((resolve, reject) => {
             const payload = body ? JSON.stringify(body) : undefined;
@@ -27752,7 +27694,9 @@ async function bridgeRequest(path, body) {
                 method: body ? "POST" : "GET",
                 headers: {
                     "Content-Type": "application/json",
-                    ...(payload ? { "Content-Length": Buffer.byteLength(payload) } : {}),
+                    ...(payload
+                        ? { "Content-Length": Buffer.byteLength(payload) }
+                        : {}),
                 },
             }, (res) => {
                 let data = "";
@@ -27764,15 +27708,12 @@ async function bridgeRequest(path, body) {
                             reject(new error_W3ActionError(err.code ?? "BRIDGE_ERROR", err.error ?? `Bridge returned ${res.statusCode}`, { statusCode: res.statusCode, details: err }));
                         }
                         catch {
-                            reject(new error_W3ActionError("BRIDGE_ERROR", data || `HTTP ${res.statusCode}`, {
-                                statusCode: res.statusCode,
-                            }));
+                            reject(new error_W3ActionError("BRIDGE_ERROR", data || `HTTP ${res.statusCode}`, { statusCode: res.statusCode }));
                         }
                         return;
                     }
                     try {
-                        const parsed = JSON.parse(data);
-                        resolve(parsed);
+                        resolve(JSON.parse(data));
                     }
                     catch {
                         resolve(data);
@@ -27811,9 +27752,19 @@ async function bridgeRequest(path, body) {
         return text;
     }
 }
-/**
- * Check if the bridge is available.
- */
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function chainRequest(chainName, action, params, network) {
+    return bridgeRequest(`/${chainName}/${action}`, {
+        network: network ?? chainName,
+        params,
+    });
+}
+// ---------------------------------------------------------------------------
+// Public API — generic
+// ---------------------------------------------------------------------------
 async function health() {
     try {
         const res = (await bridgeRequest("/health"));
@@ -27824,42 +27775,83 @@ async function health() {
     }
 }
 /**
- * Call a chain operation via the bridge.
+ * Execute a chain operation.
  *
- * @param chain - "ethereum", "bitcoin", or "solana"
- * @param action - Operation name (e.g. "get-balance", "transfer", "call-contract")
- * @param params - Action-specific parameters
- * @param network - Network identifier (e.g. "ethereum-sepolia", "avalanche-fuji")
+ * For type-safe calls, use the typed helpers (`ethereum`, `solana`,
+ * `bitcoin`) instead. This generic method accepts any params.
  */
 async function chain(chainName, action, params, network) {
-    return (await bridgeRequest(`/${chainName}/${action}`, {
-        network: network ?? chainName,
-        params,
-    }));
+    return chainRequest(chainName, action, params, network);
 }
-/**
- * Call a crypto operation via the bridge.
- *
- * @param action - Operation name (e.g. "keccak-256", "aes-encrypt", "jwt-create")
- * @param params - Operation-specific parameters
- */
 async function bridge_crypto(action, params) {
     return (await bridgeRequest(`/crypto/${action}`, {
         params,
     }));
 }
+// ---------------------------------------------------------------------------
+// Public API — typed chain helpers
+// ---------------------------------------------------------------------------
+/** Typed Ethereum operations. */
+const ethereum = {
+    getBalance: (params, network) => chainRequest("ethereum", "get-balance", params, network),
+    readContract: (params, network) => chainRequest("ethereum", "read-contract", params, network),
+    callContract: (params, network) => chainRequest("ethereum", "call-contract", params, network),
+    transfer: (params, network) => chainRequest("ethereum", "transfer", params, network),
+    sendTransaction: (params, network) => chainRequest("ethereum", "send-transaction", params, network),
+    deployContract: (params, network) => chainRequest("ethereum", "deploy-contract", params, network),
+    transferToken: (params, network) => chainRequest("ethereum", "transfer-token", params, network),
+    approveToken: (params, network) => chainRequest("ethereum", "approve-token", params, network),
+    transferNft: (params, network) => chainRequest("ethereum", "transfer-nft", params, network),
+    getTransaction: (params, network) => chainRequest("ethereum", "get-transaction", params, network),
+    waitForTransaction: (params, network) => chainRequest("ethereum", "wait-for-transaction", params, network),
+    getEvents: (params, network) => chainRequest("ethereum", "get-events", params, network),
+    resolveName: (params, network) => chainRequest("ethereum", "resolve-name", params, network),
+    getTokenBalance: (params, network) => chainRequest("ethereum", "get-token-balance", params, network),
+    getTokenAllowance: (params, network) => chainRequest("ethereum", "get-token-allowance", params, network),
+    getNftOwner: (params, network) => chainRequest("ethereum", "get-nft-owner", params, network),
+    getNftMetadata: (params, network) => chainRequest("ethereum", "get-nft-metadata", params, network),
+};
+/** Typed Solana operations. */
+const solana = {
+    getBalance: (params, network) => chainRequest("solana", "get-balance", params, network),
+    transfer: (params, network) => chainRequest("solana", "transfer", params, network),
+    transferToken: (params, network) => chainRequest("solana", "transfer-token", params, network),
+    callProgram: (params, network) => chainRequest("solana", "call-program", params, network),
+    getAccount: (params, network) => chainRequest("solana", "get-account", params, network),
+    getTokenBalance: (params, network) => chainRequest("solana", "get-token-balance", params, network),
+    getTokenAccounts: (params, network) => chainRequest("solana", "get-token-accounts", params, network),
+    getTransaction: (params, network) => chainRequest("solana", "get-transaction", params, network),
+    waitForTransaction: (params, network) => chainRequest("solana", "wait-for-transaction", params, network),
+    /** Generate an ephemeral keypair for use as an additional signer. */
+    generateKeypair: () => bridgeRequest("/solana/generate-keypair", {}),
+    /** Get the payer's public key (no secret exposed). */
+    payerAddress: () => bridgeRequest("/solana/payer-address"),
+};
+/** Typed Bitcoin operations. */
+const bitcoin = {
+    getBalance: (params, network) => chainRequest("bitcoin", "get-balance", params, network),
+    send: (params, network) => chainRequest("bitcoin", "send", params, network),
+    getUtxos: (params, network) => chainRequest("bitcoin", "get-utxos", params, network),
+    getTransaction: (params, network) => chainRequest("bitcoin", "get-transaction", params, network),
+    getFeeRate: (params, network) => chainRequest("bitcoin", "get-fee-rate", params ?? {}, network),
+    waitForTransaction: (params, network) => chainRequest("bitcoin", "wait-for-transaction", params, network),
+};
+// ---------------------------------------------------------------------------
+// Default export
+// ---------------------------------------------------------------------------
 /**
- * The bridge client. Import and use:
+ * The bridge client.
  *
- *   import { bridge } from "@w3-io/action-core";
+ *   import { bridge, ethereum, solana, bitcoin } from "@w3-io/action-core";
  *
- *   // Chain operations
+ *   // Typed (recommended):
+ *   const receipt = await ethereum.callContract({ contract, method, args });
+ *   const sig = await solana.callProgram({ programId, accounts, data });
+ *   const tx = await bitcoin.send({ to, amount });
+ *
+ *   // Generic:
  *   const bal = await bridge.chain("ethereum", "get-balance", { address });
- *
- *   // Crypto
  *   const hash = await bridge.crypto("keccak-256", { data: "0x..." });
- *
- *   // Health check
  *   const ok = await bridge.health();
  */
 const bridge = {
@@ -27868,48 +27860,69 @@ const bridge = {
     crypto: bridge_crypto,
 };
 
+;// CONCATENATED MODULE: ./node_modules/@w3-io/action-core/dist/summary.js
+
+/**
+ * Write a job summary safely.
+ *
+ * Wraps `@actions/core` summary with proper `await` and error handling.
+ * The W3 runner sets GITHUB_STEP_SUMMARY and mounts a writable file,
+ * so this works on both GitHub Actions and W3. If the summary file is
+ * unavailable (local dev, CI without summary support), the write is
+ * silently skipped.
+ *
+ * Usage:
+ *   await writeSummary("My Action: deposit", [
+ *     ["Amount", "1000 USDC"],
+ *     ["TX", "`0xabc...`"],
+ *   ]);
+ *
+ *   await writeSummary("My Action: query", result);
+ */
+async function writeSummary(heading, content) {
+    try {
+        core.summary.addHeading(heading, 3);
+        if (typeof content === "string") {
+            core.summary.addRaw(content);
+        }
+        else if (Array.isArray(content)) {
+            // Key-value pairs rendered as markdown
+            for (const [key, value] of content) {
+                core.summary.addRaw(`**${key}:** ${value}\n\n`);
+            }
+        }
+        else {
+            core.summary.addCodeBlock(JSON.stringify(content, null, 2), "json");
+        }
+        await core.summary.write();
+    }
+    catch {
+        // Silently skip — environment may not support job summaries
+    }
+}
+
 ;// CONCATENATED MODULE: ./node_modules/@w3-io/action-core/dist/test.js
 /**
  * Test utilities for W3 actions.
  *
  * Mocks @actions/core so you can test command handlers in isolation
  * without running the full GitHub Actions runtime.
- *
- * Usage:
- *   import { mockAction, expectOutput, expectFailed } from "@w3-io/action-core/test";
- *
- *   test("keccak-256 hashes correctly", async () => {
- *     mockAction({ command: "keccak-256", input: "48656c6c6f" });
- *     await import("../src/index.js");
- *     expectOutput("result", (val) => val.includes("hash"));
- *   });
  */
 let _inputs = {};
 let _outputs = new Map();
 let _failed = null;
-/**
- * Set up mock inputs for the next action invocation.
- * Call this before importing/running the action.
- */
 function mockAction(inputs) {
     _inputs = inputs;
     _outputs = new Map();
     _failed = null;
-    // Mock process.env for @actions/core.getInput()
     for (const [key, value] of Object.entries(inputs)) {
         const envKey = `INPUT_${key.replace(/-/g, "_").toUpperCase()}`;
         process.env[envKey] = value;
     }
 }
-/**
- * Get an output that was set during action execution.
- */
 function getOutput(name) {
     return _outputs.get(name);
 }
-/**
- * Assert an output was set and optionally validate its value.
- */
 function expectOutput(name, validator) {
     const value = _outputs.get(name);
     if (value === undefined) {
@@ -27919,9 +27932,6 @@ function expectOutput(name, validator) {
         throw new Error(`Output "${name}" failed validation. Value: ${value}`);
     }
 }
-/**
- * Assert the action failed with a specific message pattern.
- */
 function expectFailed(pattern) {
     if (_failed === null) {
         throw new Error("Expected action to fail, but it succeeded");
@@ -27935,17 +27945,11 @@ function expectFailed(pattern) {
         }
     }
 }
-/**
- * Assert the action succeeded (did not call setFailed).
- */
 function expectSuccess() {
     if (_failed !== null) {
         throw new Error(`Expected action to succeed, but it failed: "${_failed}"`);
     }
 }
-/**
- * Clean up mock environment after tests.
- */
 function cleanupMock() {
     for (const key of Object.keys(process.env)) {
         if (key.startsWith("INPUT_")) {
@@ -27956,14 +27960,8 @@ function cleanupMock() {
     _outputs = new Map();
     _failed = null;
 }
-/**
- * Create a mock @actions/core module that captures outputs and failures.
- *
- * Use this to intercept setOutput/setFailed calls:
- *   const core = createMockCore();
- *   // pass core to your command handler
- */
 function createMockCore() {
+    const noopChain = () => ({ addRaw: noopChain, addHeading: noopChain, addCodeBlock: noopChain, write: async () => { } });
     return {
         getInput: (name, opts) => {
             const value = _inputs[name] ?? "";
@@ -27982,9 +27980,7 @@ function createMockCore() {
         warning: (_msg) => { },
         error: (_msg) => { },
         debug: (_msg) => { },
-        summary: {
-            addHeading: () => ({ addRaw: () => ({ write: async () => { } }) }),
-        },
+        summary: { addHeading: noopChain, addRaw: noopChain, addCodeBlock: noopChain, write: async () => { } },
     };
 }
 
@@ -27997,13 +27993,14 @@ function createMockCore() {
 
 
 
+
 ;// CONCATENATED MODULE: ./src/index.js
 
 
 
-const DEFAULT_TIMEOUT_MS = 30_000
-const MAX_RETRIES = 3
-const RETRY_DELAY_MS = 1000
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
 
 /**
  * Fetch with timeout, retry on 429/5xx, and exponential backoff.
@@ -28011,662 +28008,1093 @@ const RETRY_DELAY_MS = 1000
  */
 async function fetchWithRetry(url, opts, retries = MAX_RETRIES) {
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
     try {
-      const res = await fetch(url, { ...opts, signal: controller.signal })
-      clearTimeout(timer)
+      const res = await fetch(url, { ...opts, signal: controller.signal });
+      clearTimeout(timer);
 
       // Retry on 429 (rate limit) and 5xx (server error)
       if ((res.status === 429 || res.status >= 500) && attempt < retries) {
-        const retryAfter = res.headers.get('retry-after')
-        const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : NaN
+        const retryAfter = res.headers.get("retry-after");
+        const retrySeconds = retryAfter ? parseInt(retryAfter, 10) : NaN;
         const delay = Number.isFinite(retrySeconds)
           ? retrySeconds * 1000
-          : RETRY_DELAY_MS * 2 ** attempt
-        await new Promise(r => setTimeout(r, delay))
-        continue
+          : RETRY_DELAY_MS * 2 ** attempt;
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
       }
 
-      return res
+      return res;
     } catch (e) {
-      clearTimeout(timer)
-      if (attempt < retries && (e.name === 'AbortError' || e.code === 'UND_ERR_CONNECT_TIMEOUT')) {
-        await new Promise(r => setTimeout(r, RETRY_DELAY_MS * 2 ** attempt))
-        continue
+      clearTimeout(timer);
+      if (
+        attempt < retries &&
+        (e.name === "AbortError" || e.code === "UND_ERR_CONNECT_TIMEOUT")
+      ) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * 2 ** attempt));
+        continue;
       }
-      if (e.name === 'AbortError') {
-        throw new error_W3ActionError('TIMEOUT', `Request timed out after ${DEFAULT_TIMEOUT_MS}ms: ${url}`)
+      if (e.name === "AbortError") {
+        throw new error_W3ActionError(
+          "TIMEOUT",
+          `Request timed out after ${DEFAULT_TIMEOUT_MS}ms: ${url}`,
+        );
       }
-      throw e
+      throw e;
     }
   }
 }
 
 const router = createCommandRouter({
   // ── Users ──────────────────────────────────────────────────────
-  'create-user': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users', pb()))
+  "create-user": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/users", pb()));
   },
-  'get-user': async () => {
-    const { req, userId } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('GET', `/users/${userId}`))
+  "get-user": async () => {
+    const { req, userId } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput("result", await req("GET", `/users/${userId}`));
   },
-  'list-users': async () => {
-    const { req, qs, cursor, limit } = setup()
-    setJsonOutput('result', await req('GET', `/users${qs({ cursor, limit })}`))
+  "list-users": async () => {
+    const { req, qs, cursor, limit } = setup();
+    setJsonOutput("result", await req("GET", `/users${qs({ cursor, limit })}`));
   },
-  'delete-user': async () => {
-    const { req, userId } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('DELETE', `/users/${userId}`))
+  "delete-user": async () => {
+    const { req, userId } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput("result", await req("DELETE", `/users/${userId}`));
   },
-  'search-users': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/search', pb()))
+  "search-users": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/users/search", pb()));
   },
-  'set-user-metadata': async () => {
-    const { req, pb, userId } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('POST', `/users/${userId}/custom_metadata`, pb()))
-  },
-  'link-account': async () => {
-    const { req, pb, userId } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('POST', `/users/${userId}/accounts`, pb()))
-  },
-  'unlink-account': async () => {
-    const { req, pb, userId } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('POST', `/users/${userId}/accounts/unlink`, pb()))
-  },
-  'pregenerate-wallets': async () => {
-    const { req, pb, userId, body, chainType } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
+  "set-user-metadata": async () => {
+    const { req, pb, userId } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
     setJsonOutput(
-      'result',
-      await req('POST', `/users/${userId}/wallets`, body ? pb() : { wallets: [{ chain_type: chainType || 'ethereum' }] }),
-    )
+      "result",
+      await req("POST", `/users/${userId}/custom_metadata`, pb()),
+    );
+  },
+  "link-account": async () => {
+    const { req, pb, userId } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/users/${userId}/accounts`, pb()),
+    );
+  },
+  "unlink-account": async () => {
+    const { req, pb, userId } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/users/${userId}/accounts/unlink`, pb()),
+    );
+  },
+  "pregenerate-wallets": async () => {
+    const { req, pb, userId, body, chainType } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput(
+      "result",
+      await req(
+        "POST",
+        `/users/${userId}/wallets`,
+        body ? pb() : { wallets: [{ chain_type: chainType || "ethereum" }] },
+      ),
+    );
   },
 
   // ── User Lookups ───────────────────────────────────────────────
-  'get-user-by-email': async () => {
-    const { req, pb, email } = setup()
-    setJsonOutput('result', await req('POST', '/users/email/address', { address: email || pb().address }))
+  "get-user-by-email": async () => {
+    const { req, pb, email } = setup();
+    setJsonOutput(
+      "result",
+      await req("POST", "/users/email/address", {
+        address: email || pb().address,
+      }),
+    );
   },
-  'get-user-by-phone': async () => {
-    const { req, pb, phone } = setup()
-    setJsonOutput('result', await req('POST', '/users/phone/number', { number: phone || pb().number }))
+  "get-user-by-phone": async () => {
+    const { req, pb, phone } = setup();
+    setJsonOutput(
+      "result",
+      await req("POST", "/users/phone/number", {
+        number: phone || pb().number,
+      }),
+    );
   },
-  'get-user-by-wallet': async () => {
-    const { req, pb, address } = setup()
-    setJsonOutput('result', await req('POST', '/users/wallet/address', { address: address || pb().address }))
+  "get-user-by-wallet": async () => {
+    const { req, pb, address } = setup();
+    setJsonOutput(
+      "result",
+      await req("POST", "/users/wallet/address", {
+        address: address || pb().address,
+      }),
+    );
   },
-  'get-user-by-smart-wallet': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/smart_wallet/address', pb()))
+  "get-user-by-smart-wallet": async () => {
+    const { req, pb } = setup();
+    setJsonOutput(
+      "result",
+      await req("POST", "/users/smart_wallet/address", pb()),
+    );
   },
-  'get-user-by-discord': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/discord/username', pb()))
+  "get-user-by-discord": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/users/discord/username", pb()));
   },
-  'get-user-by-telegram-id': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/telegram/telegram_user_id', pb()))
+  "get-user-by-telegram-id": async () => {
+    const { req, pb } = setup();
+    setJsonOutput(
+      "result",
+      await req("POST", "/users/telegram/telegram_user_id", pb()),
+    );
   },
-  'get-user-by-telegram-username': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/telegram/username', pb()))
+  "get-user-by-telegram-username": async () => {
+    const { req, pb } = setup();
+    setJsonOutput(
+      "result",
+      await req("POST", "/users/telegram/username", pb()),
+    );
   },
-  'get-user-by-farcaster': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/farcaster/fid', pb()))
+  "get-user-by-farcaster": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/users/farcaster/fid", pb()));
   },
-  'get-user-by-instagram': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/instagram/username', pb()))
+  "get-user-by-instagram": async () => {
+    const { req, pb } = setup();
+    setJsonOutput(
+      "result",
+      await req("POST", "/users/instagram/username", pb()),
+    );
   },
-  'get-user-by-twitter': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/twitter/username', pb()))
+  "get-user-by-twitter": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/users/twitter/username", pb()));
   },
-  'get-user-by-twitter-id': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/twitter/subject', pb()))
+  "get-user-by-twitter-id": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/users/twitter/subject", pb()));
   },
-  'get-user-by-github': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/github/username', pb()))
+  "get-user-by-github": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/users/github/username", pb()));
   },
-  'get-user-by-twitch': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/twitch/username', pb()))
+  "get-user-by-twitch": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/users/twitch/username", pb()));
   },
-  'get-user-by-spotify': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/spotify/subject', pb()))
+  "get-user-by-spotify": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/users/spotify/subject", pb()));
   },
-  'get-user-by-custom-auth': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/users/custom_auth/id', pb()))
+  "get-user-by-custom-auth": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/users/custom_auth/id", pb()));
   },
 
   // ── Wallets ────────────────────────────────────────────────────
-  'create-wallet': async () => {
-    const { req, pb, body, chainType } = setup()
-    setJsonOutput('result', await req('POST', '/wallets', body ? pb() : { chain_type: chainType || 'ethereum' }))
+  "create-wallet": async () => {
+    const { req, pb, body, chainType } = setup();
+    setJsonOutput(
+      "result",
+      await req(
+        "POST",
+        "/wallets",
+        body ? pb() : { chain_type: chainType || "ethereum" },
+      ),
+    );
   },
-  'batch-create-wallets': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/wallets/batch', pb()))
+  "batch-create-wallets": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/wallets/batch", pb()));
   },
-  'create-custodial-wallet': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/custodial_wallets', pb()))
+  "create-custodial-wallet": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/custodial_wallets", pb()));
   },
-  'get-wallet': async () => {
-    const { req, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('GET', `/wallets/${walletId}`))
+  "get-wallet": async () => {
+    const { req, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput("result", await req("GET", `/wallets/${walletId}`));
   },
-  'list-wallets': async () => {
-    const { req, qs, cursor, limit, chainType, userId } = setup()
-    setJsonOutput('result', await req('GET', `/wallets${qs({ cursor, limit, chain_type: chainType, user_id: userId })}`))
+  "list-wallets": async () => {
+    const { req, qs, cursor, limit, chainType, userId } = setup();
+    setJsonOutput(
+      "result",
+      await req(
+        "GET",
+        `/wallets${qs({ cursor, limit, chain_type: chainType, user_id: userId })}`,
+      ),
+    );
   },
-  'get-wallet-by-address': async () => {
-    const { req, pb, address } = setup()
-    setJsonOutput('result', await req('POST', '/wallets/address', { address: address || pb().address }))
+  "get-wallet-by-address": async () => {
+    const { req, pb, address } = setup();
+    setJsonOutput(
+      "result",
+      await req("POST", "/wallets/address", {
+        address: address || pb().address,
+      }),
+    );
   },
-  'update-wallet': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('PATCH', `/wallets/${walletId}`, pb()))
+  "update-wallet": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput("result", await req("PATCH", `/wallets/${walletId}`, pb()));
   },
-  'get-wallet-balance': async () => {
-    const { req, qs, walletId, chain, asset, token } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('GET', `/wallets/${walletId}/balance${qs({ chain, asset, token })}`))
+  "get-wallet-balance": async () => {
+    const { req, qs, walletId, chain, asset, token } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req(
+        "GET",
+        `/wallets/${walletId}/balance${qs({ chain, asset, token })}`,
+      ),
+    );
   },
-  'export-wallet': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/export`, pb()))
+  "export-wallet": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/export`, pb()),
+    );
   },
-  'authenticate-wallet': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/wallets/authenticate', pb()))
+  "authenticate-wallet": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/wallets/authenticate", pb()));
   },
-  'get-wallet-action': async () => {
-    const { req, walletId, actionId } = setup()
-    if (!walletId || !actionId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id and action-id required')
-    setJsonOutput('result', await req('GET', `/wallets/${walletId}/actions/${actionId}`))
+  "get-wallet-action": async () => {
+    const { req, walletId, actionId } = setup();
+    if (!walletId || !actionId)
+      throw new error_W3ActionError(
+        "MISSING_INPUT",
+        "wallet-id and action-id required",
+      );
+    setJsonOutput(
+      "result",
+      await req("GET", `/wallets/${walletId}/actions/${actionId}`),
+    );
   },
-  'get-wallet-transactions': async () => {
-    const { req, qs, walletId, cursor, limit, chain } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('GET', `/wallets/${walletId}/transactions${qs({ cursor, limit, chain })}`))
+  "get-wallet-transactions": async () => {
+    const { req, qs, walletId, cursor, limit, chain } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req(
+        "GET",
+        `/wallets/${walletId}/transactions${qs({ cursor, limit, chain })}`,
+      ),
+    );
   },
-  'transfer': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/transfer`, pb()))
+  transfer: async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/transfer`, pb()),
+    );
   },
-  'swap': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/swap`, pb()))
+  swap: async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/swap`, pb()),
+    );
   },
-  'get-swap-quote': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/swap/quote`, pb()))
+  "get-swap-quote": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/swap/quote`, pb()),
+    );
   },
 
   // ── Signing — Ethereum ─────────────────────────────────────────
-  'eth-send-transaction': async () => {
-    const { req, pb, walletId, caip2 } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    const p = pb(); if (caip2) p.caip2 = caip2
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'eth_sendTransaction', params: p }))
+  "eth-send-transaction": async () => {
+    const { req, pb, walletId, caip2 } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    const p = pb();
+    if (caip2) p.caip2 = caip2;
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/rpc`, {
+        method: "eth_sendTransaction",
+        params: p,
+      }),
+    );
   },
-  'eth-sign-transaction': async () => {
-    const { req, pb, walletId, caip2 } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    const p = pb(); if (caip2) p.caip2 = caip2
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'eth_signTransaction', params: p }))
+  "eth-sign-transaction": async () => {
+    const { req, pb, walletId, caip2 } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    const p = pb();
+    if (caip2) p.caip2 = caip2;
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/rpc`, {
+        method: "eth_signTransaction",
+        params: p,
+      }),
+    );
   },
-  'personal-sign': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'personal_sign', params: pb() }))
+  "personal-sign": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/rpc`, {
+        method: "personal_sign",
+        params: pb(),
+      }),
+    );
   },
-  'eth-sign-typed-data': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'eth_signTypedData_v4', params: pb() }))
+  "eth-sign-typed-data": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/rpc`, {
+        method: "eth_signTypedData_v4",
+        params: pb(),
+      }),
+    );
   },
-  'eth-sign-7702': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'eth_sign7702Authorization', params: pb() }))
+  "eth-sign-7702": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/rpc`, {
+        method: "eth_sign7702Authorization",
+        params: pb(),
+      }),
+    );
   },
-  'eth-sign-user-operation': async () => {
-    const { req, pb, walletId, caip2 } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    const p = pb(); if (caip2) p.caip2 = caip2
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'eth_signUserOperation', params: p }))
+  "eth-sign-user-operation": async () => {
+    const { req, pb, walletId, caip2 } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    const p = pb();
+    if (caip2) p.caip2 = caip2;
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/rpc`, {
+        method: "eth_signUserOperation",
+        params: p,
+      }),
+    );
   },
 
   // ── Signing — Solana ───────────────────────────────────────────
-  'solana-send-transaction': async () => {
-    const { req, pb, walletId, caip2 } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    const p = pb(); if (caip2) p.caip2 = caip2
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'signAndSendTransaction', params: p }))
+  "solana-send-transaction": async () => {
+    const { req, pb, walletId, caip2 } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    const p = pb();
+    if (caip2) p.caip2 = caip2;
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/rpc`, {
+        method: "signAndSendTransaction",
+        params: p,
+      }),
+    );
   },
-  'solana-sign-transaction': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'signTransaction', params: pb() }))
+  "solana-sign-transaction": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/rpc`, {
+        method: "signTransaction",
+        params: pb(),
+      }),
+    );
   },
-  'solana-sign-message': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'signMessage', params: pb() }))
+  "solana-sign-message": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/rpc`, {
+        method: "signMessage",
+        params: pb(),
+      }),
+    );
   },
 
   // ── Signing — Bitcoin / Spark ──────────────────────────────────
-  'bitcoin-sign-psbt': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'signPsbt', params: pb() }))
+  "bitcoin-sign-psbt": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/rpc`, {
+        method: "signPsbt",
+        params: pb(),
+      }),
+    );
   },
-  'spark-transfer': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'transfer', params: pb() }))
+  "spark-transfer": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/rpc`, {
+        method: "transfer",
+        params: pb(),
+      }),
+    );
   },
-  'spark-transfer-tokens': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/rpc`, { method: 'transferTokens', params: pb() }))
+  "spark-transfer-tokens": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/rpc`, {
+        method: "transferTokens",
+        params: pb(),
+      }),
+    );
   },
 
   // ── Signing — Raw ──────────────────────────────────────────────
-  'raw-sign': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/raw_sign`, pb()))
+  "raw-sign": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/raw_sign`, pb()),
+    );
   },
 
   // ── Transactions ───────────────────────────────────────────────
-  'get-transaction': async () => {
-    const { req, transactionId } = setup()
-    if (!transactionId) throw new error_W3ActionError('MISSING_INPUT', 'transaction-id required')
-    setJsonOutput('result', await req('GET', `/transactions/${transactionId}`))
+  "get-transaction": async () => {
+    const { req, transactionId } = setup();
+    if (!transactionId)
+      throw new error_W3ActionError("MISSING_INPUT", "transaction-id required");
+    setJsonOutput("result", await req("GET", `/transactions/${transactionId}`));
   },
 
   // ── Policies ───────────────────────────────────────────────────
-  'create-policy': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/policies', pb()))
+  "create-policy": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/policies", pb()));
   },
-  'get-policy': async () => {
-    const { req, policyId } = setup()
-    if (!policyId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id required')
-    setJsonOutput('result', await req('GET', `/policies/${policyId}`))
+  "get-policy": async () => {
+    const { req, policyId } = setup();
+    if (!policyId)
+      throw new error_W3ActionError("MISSING_INPUT", "policy-id required");
+    setJsonOutput("result", await req("GET", `/policies/${policyId}`));
   },
-  'update-policy': async () => {
-    const { req, pb, policyId } = setup()
-    if (!policyId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id required')
-    setJsonOutput('result', await req('PATCH', `/policies/${policyId}`, pb()))
+  "update-policy": async () => {
+    const { req, pb, policyId } = setup();
+    if (!policyId)
+      throw new error_W3ActionError("MISSING_INPUT", "policy-id required");
+    setJsonOutput("result", await req("PATCH", `/policies/${policyId}`, pb()));
   },
-  'delete-policy': async () => {
-    const { req, policyId } = setup()
-    if (!policyId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id required')
-    setJsonOutput('result', await req('DELETE', `/policies/${policyId}`))
+  "delete-policy": async () => {
+    const { req, policyId } = setup();
+    if (!policyId)
+      throw new error_W3ActionError("MISSING_INPUT", "policy-id required");
+    setJsonOutput("result", await req("DELETE", `/policies/${policyId}`));
   },
-  'create-rule': async () => {
-    const { req, pb, policyId } = setup()
-    if (!policyId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id required')
-    setJsonOutput('result', await req('POST', `/policies/${policyId}/rules`, pb()))
+  "create-rule": async () => {
+    const { req, pb, policyId } = setup();
+    if (!policyId)
+      throw new error_W3ActionError("MISSING_INPUT", "policy-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/policies/${policyId}/rules`, pb()),
+    );
   },
-  'get-rule': async () => {
-    const { req, policyId, ruleId } = setup()
-    if (!policyId || !ruleId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id and rule-id required')
-    setJsonOutput('result', await req('GET', `/policies/${policyId}/rules/${ruleId}`))
+  "get-rule": async () => {
+    const { req, policyId, ruleId } = setup();
+    if (!policyId || !ruleId)
+      throw new error_W3ActionError(
+        "MISSING_INPUT",
+        "policy-id and rule-id required",
+      );
+    setJsonOutput(
+      "result",
+      await req("GET", `/policies/${policyId}/rules/${ruleId}`),
+    );
   },
-  'update-rule': async () => {
-    const { req, pb, policyId, ruleId } = setup()
-    if (!policyId || !ruleId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id and rule-id required')
-    setJsonOutput('result', await req('PATCH', `/policies/${policyId}/rules/${ruleId}`, pb()))
+  "update-rule": async () => {
+    const { req, pb, policyId, ruleId } = setup();
+    if (!policyId || !ruleId)
+      throw new error_W3ActionError(
+        "MISSING_INPUT",
+        "policy-id and rule-id required",
+      );
+    setJsonOutput(
+      "result",
+      await req("PATCH", `/policies/${policyId}/rules/${ruleId}`, pb()),
+    );
   },
-  'delete-rule': async () => {
-    const { req, policyId, ruleId } = setup()
-    if (!policyId || !ruleId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id and rule-id required')
-    setJsonOutput('result', await req('DELETE', `/policies/${policyId}/rules/${ruleId}`))
+  "delete-rule": async () => {
+    const { req, policyId, ruleId } = setup();
+    if (!policyId || !ruleId)
+      throw new error_W3ActionError(
+        "MISSING_INPUT",
+        "policy-id and rule-id required",
+      );
+    setJsonOutput(
+      "result",
+      await req("DELETE", `/policies/${policyId}/rules/${ruleId}`),
+    );
   },
 
   // ── Key Quorums ────────────────────────────────────────────────
-  'create-quorum': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/key_quorums', pb()))
+  "create-quorum": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/key_quorums", pb()));
   },
-  'get-quorum': async () => {
-    const { req, quorumId } = setup()
-    if (!quorumId) throw new error_W3ActionError('MISSING_INPUT', 'quorum-id required')
-    setJsonOutput('result', await req('GET', `/key_quorums/${quorumId}`))
+  "get-quorum": async () => {
+    const { req, quorumId } = setup();
+    if (!quorumId)
+      throw new error_W3ActionError("MISSING_INPUT", "quorum-id required");
+    setJsonOutput("result", await req("GET", `/key_quorums/${quorumId}`));
   },
-  'update-quorum': async () => {
-    const { req, pb, quorumId } = setup()
-    if (!quorumId) throw new error_W3ActionError('MISSING_INPUT', 'quorum-id required')
-    setJsonOutput('result', await req('PATCH', `/key_quorums/${quorumId}`, pb()))
+  "update-quorum": async () => {
+    const { req, pb, quorumId } = setup();
+    if (!quorumId)
+      throw new error_W3ActionError("MISSING_INPUT", "quorum-id required");
+    setJsonOutput(
+      "result",
+      await req("PATCH", `/key_quorums/${quorumId}`, pb()),
+    );
   },
-  'delete-quorum': async () => {
-    const { req, quorumId } = setup()
-    if (!quorumId) throw new error_W3ActionError('MISSING_INPUT', 'quorum-id required')
-    setJsonOutput('result', await req('DELETE', `/key_quorums/${quorumId}`))
+  "delete-quorum": async () => {
+    const { req, quorumId } = setup();
+    if (!quorumId)
+      throw new error_W3ActionError("MISSING_INPUT", "quorum-id required");
+    setJsonOutput("result", await req("DELETE", `/key_quorums/${quorumId}`));
   },
 
   // ── Intents ────────────────────────────────────────────────────
-  'create-rpc-intent': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/intents/wallets/${walletId}/rpc`, pb()))
+  "create-rpc-intent": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/intents/wallets/${walletId}/rpc`, pb()),
+    );
   },
-  'create-wallet-update-intent': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('PATCH', `/intents/wallets/${walletId}`, pb()))
+  "create-wallet-update-intent": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("PATCH", `/intents/wallets/${walletId}`, pb()),
+    );
   },
-  'create-policy-update-intent': async () => {
-    const { req, pb, policyId } = setup()
-    if (!policyId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id required')
-    setJsonOutput('result', await req('PATCH', `/intents/policies/${policyId}`, pb()))
+  "create-policy-update-intent": async () => {
+    const { req, pb, policyId } = setup();
+    if (!policyId)
+      throw new error_W3ActionError("MISSING_INPUT", "policy-id required");
+    setJsonOutput(
+      "result",
+      await req("PATCH", `/intents/policies/${policyId}`, pb()),
+    );
   },
-  'create-rule-intent': async () => {
-    const { req, pb, policyId } = setup()
-    if (!policyId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id required')
-    setJsonOutput('result', await req('POST', `/intents/policies/${policyId}/rules`, pb()))
+  "create-rule-intent": async () => {
+    const { req, pb, policyId } = setup();
+    if (!policyId)
+      throw new error_W3ActionError("MISSING_INPUT", "policy-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/intents/policies/${policyId}/rules`, pb()),
+    );
   },
-  'update-rule-intent': async () => {
-    const { req, pb, policyId, ruleId } = setup()
-    if (!policyId || !ruleId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id and rule-id required')
-    setJsonOutput('result', await req('PATCH', `/intents/policies/${policyId}/rules/${ruleId}`, pb()))
+  "update-rule-intent": async () => {
+    const { req, pb, policyId, ruleId } = setup();
+    if (!policyId || !ruleId)
+      throw new error_W3ActionError(
+        "MISSING_INPUT",
+        "policy-id and rule-id required",
+      );
+    setJsonOutput(
+      "result",
+      await req("PATCH", `/intents/policies/${policyId}/rules/${ruleId}`, pb()),
+    );
   },
-  'delete-rule-intent': async () => {
-    const { req, pb, policyId, ruleId } = setup()
-    if (!policyId || !ruleId) throw new error_W3ActionError('MISSING_INPUT', 'policy-id and rule-id required')
-    setJsonOutput('result', await req('DELETE', `/intents/policies/${policyId}/rules/${ruleId}`))
+  "delete-rule-intent": async () => {
+    const { req, policyId, ruleId } = setup();
+    if (!policyId || !ruleId)
+      throw new error_W3ActionError(
+        "MISSING_INPUT",
+        "policy-id and rule-id required",
+      );
+    setJsonOutput(
+      "result",
+      await req("DELETE", `/intents/policies/${policyId}/rules/${ruleId}`),
+    );
   },
-  'create-quorum-update-intent': async () => {
-    const { req, pb, quorumId } = setup()
-    if (!quorumId) throw new error_W3ActionError('MISSING_INPUT', 'quorum-id required')
-    setJsonOutput('result', await req('PATCH', `/intents/key_quorums/${quorumId}`, pb()))
+  "create-quorum-update-intent": async () => {
+    const { req, pb, quorumId } = setup();
+    if (!quorumId)
+      throw new error_W3ActionError("MISSING_INPUT", "quorum-id required");
+    setJsonOutput(
+      "result",
+      await req("PATCH", `/intents/key_quorums/${quorumId}`, pb()),
+    );
   },
-  'get-intent': async () => {
-    const { req, intentId } = setup()
-    if (!intentId) throw new error_W3ActionError('MISSING_INPUT', 'intent-id required')
-    setJsonOutput('result', await req('GET', `/intents/${intentId}`))
+  "get-intent": async () => {
+    const { req, intentId } = setup();
+    if (!intentId)
+      throw new error_W3ActionError("MISSING_INPUT", "intent-id required");
+    setJsonOutput("result", await req("GET", `/intents/${intentId}`));
   },
-  'list-intents': async () => {
-    const { req, qs, cursor, limit } = setup()
-    setJsonOutput('result', await req('GET', `/intents${qs({ cursor, limit })}`))
+  "list-intents": async () => {
+    const { req, qs, cursor, limit } = setup();
+    setJsonOutput(
+      "result",
+      await req("GET", `/intents${qs({ cursor, limit })}`),
+    );
   },
 
   // ── Yield (ERC-4626) ───────────────────────────────────────────
-  'get-vault': async () => {
-    const { req, vaultId } = setup()
-    if (!vaultId) throw new error_W3ActionError('MISSING_INPUT', 'vault-id required')
-    setJsonOutput('result', await req('GET', `/ethereum_yield_vault/${vaultId}`))
+  "get-vault": async () => {
+    const { req, vaultId } = setup();
+    if (!vaultId) throw new error_W3ActionError("MISSING_INPUT", "vault-id required");
+    setJsonOutput(
+      "result",
+      await req("GET", `/ethereum_yield_vault/${vaultId}`),
+    );
   },
-  'get-vault-position': async () => {
-    const { req, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('GET', `/wallets/${walletId}/ethereum_yield_vault`))
+  "get-vault-position": async () => {
+    const { req, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("GET", `/wallets/${walletId}/ethereum_yield_vault`),
+    );
   },
-  'deposit-vault': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/ethereum_yield_deposit`, pb()))
+  "deposit-vault": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/ethereum_yield_deposit`, pb()),
+    );
   },
-  'withdraw-vault': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/ethereum_yield_withdraw`, pb()))
+  "withdraw-vault": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/ethereum_yield_withdraw`, pb()),
+    );
   },
-  'claim-yield': async () => {
-    const { req, pb, walletId } = setup()
-    if (!walletId) throw new error_W3ActionError('MISSING_INPUT', 'wallet-id required')
-    setJsonOutput('result', await req('POST', `/wallets/${walletId}/ethereum_yield_claim`, pb()))
+  "claim-yield": async () => {
+    const { req, pb, walletId } = setup();
+    if (!walletId)
+      throw new error_W3ActionError("MISSING_INPUT", "wallet-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/wallets/${walletId}/ethereum_yield_claim`, pb()),
+    );
   },
-  'get-claim': async () => {
-    const { req, claimId } = setup()
-    if (!claimId) throw new error_W3ActionError('MISSING_INPUT', 'claim-id required')
-    setJsonOutput('result', await req('GET', `/ethereum_yield_claim/${claimId}`))
+  "get-claim": async () => {
+    const { req, claimId } = setup();
+    if (!claimId) throw new error_W3ActionError("MISSING_INPUT", "claim-id required");
+    setJsonOutput(
+      "result",
+      await req("GET", `/ethereum_yield_claim/${claimId}`),
+    );
   },
-  'get-sweep': async () => {
-    const { req, sweepId } = setup()
-    if (!sweepId) throw new error_W3ActionError('MISSING_INPUT', 'sweep-id required')
-    setJsonOutput('result', await req('GET', `/ethereum_yield_sweep/${sweepId}`))
+  "get-sweep": async () => {
+    const { req, sweepId } = setup();
+    if (!sweepId) throw new error_W3ActionError("MISSING_INPUT", "sweep-id required");
+    setJsonOutput(
+      "result",
+      await req("GET", `/ethereum_yield_sweep/${sweepId}`),
+    );
   },
 
   // ── Fiat / KYC ─────────────────────────────────────────────────
-  'start-kyc': async () => {
-    const { req, pb, userId } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('POST', `/users/${userId}/fiat/kyc`, pb()))
+  "start-kyc": async () => {
+    const { req, pb, userId } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/users/${userId}/fiat/kyc`, pb()),
+    );
   },
-  'get-kyc-status': async () => {
-    const { req, qs, userId, provider } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('GET', `/users/${userId}/fiat/kyc${qs({ provider })}`))
+  "get-kyc-status": async () => {
+    const { req, qs, userId, provider } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput(
+      "result",
+      await req("GET", `/users/${userId}/fiat/kyc${qs({ provider })}`),
+    );
   },
-  'update-kyc': async () => {
-    const { req, pb, userId } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('PATCH', `/users/${userId}/fiat/kyc`, pb()))
+  "update-kyc": async () => {
+    const { req, pb, userId } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput(
+      "result",
+      await req("PATCH", `/users/${userId}/fiat/kyc`, pb()),
+    );
   },
-  'get-kyc-link': async () => {
-    const { req, pb, userId, body } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('POST', `/users/${userId}/fiat/kyc_link`, body ? pb() : {}))
+  "get-kyc-link": async () => {
+    const { req, pb, userId, body } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/users/${userId}/fiat/kyc_link`, body ? pb() : {}),
+    );
   },
-  'create-fiat-tos': async () => {
-    const { req, pb, userId } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('POST', `/users/${userId}/fiat/tos`, pb()))
+  "create-fiat-tos": async () => {
+    const { req, pb, userId } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/users/${userId}/fiat/tos`, pb()),
+    );
   },
-  'create-fiat-account': async () => {
-    const { req, pb, userId } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('POST', `/users/${userId}/fiat/accounts`, pb()))
+  "create-fiat-account": async () => {
+    const { req, pb, userId } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/users/${userId}/fiat/accounts`, pb()),
+    );
   },
-  'list-fiat-accounts': async () => {
-    const { req, userId } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('GET', `/users/${userId}/fiat/accounts`))
+  "list-fiat-accounts": async () => {
+    const { req, userId } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput("result", await req("GET", `/users/${userId}/fiat/accounts`));
   },
-  'initiate-onramp': async () => {
-    const { req, pb, userId } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('POST', `/users/${userId}/fiat/onramp`, pb()))
+  "initiate-onramp": async () => {
+    const { req, pb, userId } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/users/${userId}/fiat/onramp`, pb()),
+    );
   },
-  'initiate-offramp': async () => {
-    const { req, pb, userId } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('POST', `/users/${userId}/fiat/offramp`, pb()))
+  "initiate-offramp": async () => {
+    const { req, pb, userId } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/users/${userId}/fiat/offramp`, pb()),
+    );
   },
-  'list-fiat-transactions': async () => {
-    const { req, pb, userId, body } = setup()
-    if (!userId) throw new error_W3ActionError('MISSING_INPUT', 'user-id required')
-    setJsonOutput('result', await req('POST', `/users/${userId}/fiat/status`, body ? pb() : {}))
+  "list-fiat-transactions": async () => {
+    const { req, pb, userId, body } = setup();
+    if (!userId) throw new error_W3ActionError("MISSING_INPUT", "user-id required");
+    setJsonOutput(
+      "result",
+      await req("POST", `/users/${userId}/fiat/status`, body ? pb() : {}),
+    );
   },
 
   // ── Condition Sets ─────────────────────────────────────────────
-  'create-condition-set': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/condition_sets', pb()))
+  "create-condition-set": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/condition_sets", pb()));
   },
-  'get-condition-set': async () => {
-    const { req, conditionSetId } = setup()
-    if (!conditionSetId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id required')
-    setJsonOutput('result', await req('GET', `/condition_sets/${conditionSetId}`))
+  "get-condition-set": async () => {
+    const { req, conditionSetId } = setup();
+    if (!conditionSetId)
+      throw new error_W3ActionError("MISSING_INPUT", "condition-set-id required");
+    setJsonOutput(
+      "result",
+      await req("GET", `/condition_sets/${conditionSetId}`),
+    );
   },
-  'update-condition-set': async () => {
-    const { req, pb, conditionSetId } = setup()
-    if (!conditionSetId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id required')
-    setJsonOutput('result', await req('PATCH', `/condition_sets/${conditionSetId}`, pb()))
+  "update-condition-set": async () => {
+    const { req, pb, conditionSetId } = setup();
+    if (!conditionSetId)
+      throw new error_W3ActionError("MISSING_INPUT", "condition-set-id required");
+    setJsonOutput(
+      "result",
+      await req("PATCH", `/condition_sets/${conditionSetId}`, pb()),
+    );
   },
-  'delete-condition-set': async () => {
-    const { req, conditionSetId } = setup()
-    if (!conditionSetId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id required')
-    setJsonOutput('result', await req('DELETE', `/condition_sets/${conditionSetId}`))
+  "delete-condition-set": async () => {
+    const { req, conditionSetId } = setup();
+    if (!conditionSetId)
+      throw new error_W3ActionError("MISSING_INPUT", "condition-set-id required");
+    setJsonOutput(
+      "result",
+      await req("DELETE", `/condition_sets/${conditionSetId}`),
+    );
   },
-  'add-condition-set-items': async () => {
-    const { req, pb, conditionSetId } = setup()
-    if (!conditionSetId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id required')
-    setJsonOutput('result', await req('POST', `/condition_sets/${conditionSetId}/condition_set_items`, pb()))
+  "add-condition-set-items": async () => {
+    const { req, pb, conditionSetId } = setup();
+    if (!conditionSetId)
+      throw new error_W3ActionError("MISSING_INPUT", "condition-set-id required");
+    setJsonOutput(
+      "result",
+      await req(
+        "POST",
+        `/condition_sets/${conditionSetId}/condition_set_items`,
+        pb(),
+      ),
+    );
   },
-  'replace-condition-set-items': async () => {
-    const { req, pb, conditionSetId } = setup()
-    if (!conditionSetId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id required')
-    setJsonOutput('result', await req('PUT', `/condition_sets/${conditionSetId}/condition_set_items`, pb()))
+  "replace-condition-set-items": async () => {
+    const { req, pb, conditionSetId } = setup();
+    if (!conditionSetId)
+      throw new error_W3ActionError("MISSING_INPUT", "condition-set-id required");
+    setJsonOutput(
+      "result",
+      await req(
+        "PUT",
+        `/condition_sets/${conditionSetId}/condition_set_items`,
+        pb(),
+      ),
+    );
   },
-  'list-condition-set-items': async () => {
-    const { req, qs, conditionSetId, cursor, limit } = setup()
-    if (!conditionSetId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id required')
-    setJsonOutput('result', await req('GET', `/condition_sets/${conditionSetId}/condition_set_items${qs({ cursor, limit })}`))
+  "list-condition-set-items": async () => {
+    const { req, qs, conditionSetId, cursor, limit } = setup();
+    if (!conditionSetId)
+      throw new error_W3ActionError("MISSING_INPUT", "condition-set-id required");
+    setJsonOutput(
+      "result",
+      await req(
+        "GET",
+        `/condition_sets/${conditionSetId}/condition_set_items${qs({ cursor, limit })}`,
+      ),
+    );
   },
-  'get-condition-set-item': async () => {
-    const { req, conditionSetId, itemId } = setup()
-    if (!conditionSetId || !itemId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id and item-id required')
-    setJsonOutput('result', await req('GET', `/condition_sets/${conditionSetId}/condition_set_items/${itemId}`))
+  "get-condition-set-item": async () => {
+    const { req, conditionSetId, itemId } = setup();
+    if (!conditionSetId || !itemId)
+      throw new error_W3ActionError(
+        "MISSING_INPUT",
+        "condition-set-id and item-id required",
+      );
+    setJsonOutput(
+      "result",
+      await req(
+        "GET",
+        `/condition_sets/${conditionSetId}/condition_set_items/${itemId}`,
+      ),
+    );
   },
-  'delete-condition-set-item': async () => {
-    const { req, conditionSetId, itemId } = setup()
-    if (!conditionSetId || !itemId) throw new error_W3ActionError('MISSING_INPUT', 'condition-set-id and item-id required')
-    setJsonOutput('result', await req('DELETE', `/condition_sets/${conditionSetId}/condition_set_items/${itemId}`))
+  "delete-condition-set-item": async () => {
+    const { req, conditionSetId, itemId } = setup();
+    if (!conditionSetId || !itemId)
+      throw new error_W3ActionError(
+        "MISSING_INPUT",
+        "condition-set-id and item-id required",
+      );
+    setJsonOutput(
+      "result",
+      await req(
+        "DELETE",
+        `/condition_sets/${conditionSetId}/condition_set_items/${itemId}`,
+      ),
+    );
   },
 
   // ── Allowlist ──────────────────────────────────────────────────
-  'add-allowlist-entry': async () => {
-    const { req, pb, appId } = setup()
-    setJsonOutput('result', await req('POST', `/apps/${appId}/allowlist`, pb()))
+  "add-allowlist-entry": async () => {
+    const { req, pb, appId } = setup();
+    setJsonOutput(
+      "result",
+      await req("POST", `/apps/${appId}/allowlist`, pb()),
+    );
   },
-  'list-allowlist': async () => {
-    const { req, appId } = setup()
-    setJsonOutput('result', await req('GET', `/apps/${appId}/allowlist`))
+  "list-allowlist": async () => {
+    const { req, appId } = setup();
+    setJsonOutput("result", await req("GET", `/apps/${appId}/allowlist`));
   },
-  'delete-allowlist-entry': async () => {
-    const { req, appId, entryId } = setup()
-    if (!entryId) throw new error_W3ActionError('MISSING_INPUT', 'entry-id required')
-    setJsonOutput('result', await req('DELETE', `/apps/${appId}/allowlist/${entryId}`))
+  "delete-allowlist-entry": async () => {
+    const { req, appId, entryId } = setup();
+    if (!entryId) throw new error_W3ActionError("MISSING_INPUT", "entry-id required");
+    setJsonOutput(
+      "result",
+      await req("DELETE", `/apps/${appId}/allowlist/${entryId}`),
+    );
   },
 
   // ── Aggregations ───────────────────────────────────────────────
-  'create-aggregation': async () => {
-    const { req, pb } = setup()
-    setJsonOutput('result', await req('POST', '/aggregations', pb()))
+  "create-aggregation": async () => {
+    const { req, pb } = setup();
+    setJsonOutput("result", await req("POST", "/aggregations", pb()));
   },
-  'get-aggregation': async () => {
-    const { req, aggregationId } = setup()
-    if (!aggregationId) throw new error_W3ActionError('MISSING_INPUT', 'aggregation-id required')
-    setJsonOutput('result', await req('GET', `/aggregations/${aggregationId}`))
+  "get-aggregation": async () => {
+    const { req, aggregationId } = setup();
+    if (!aggregationId)
+      throw new error_W3ActionError("MISSING_INPUT", "aggregation-id required");
+    setJsonOutput("result", await req("GET", `/aggregations/${aggregationId}`));
   },
-  'delete-aggregation': async () => {
-    const { req, aggregationId } = setup()
-    if (!aggregationId) throw new error_W3ActionError('MISSING_INPUT', 'aggregation-id required')
-    setJsonOutput('result', await req('DELETE', `/aggregations/${aggregationId}`))
+  "delete-aggregation": async () => {
+    const { req, aggregationId } = setup();
+    if (!aggregationId)
+      throw new error_W3ActionError("MISSING_INPUT", "aggregation-id required");
+    setJsonOutput(
+      "result",
+      await req("DELETE", `/aggregations/${aggregationId}`),
+    );
   },
-})
+});
 
 /**
  * Read all common inputs and build helpers once per command invocation.
  */
 function setup() {
-  const appId = lib_core.getInput('app-id', { required: true })
-  const appSecret = lib_core.getInput('app-secret', { required: true })
-  const apiUrl = lib_core.getInput('api-url') || 'https://api.privy.io/v1'
+  const appId = lib_core.getInput("app-id", { required: true });
+  const appSecret = lib_core.getInput("app-secret", { required: true });
+  const apiUrl = lib_core.getInput("api-url") || "https://api.privy.io/v1";
 
-  const userId = lib_core.getInput('user-id') || ''
-  const walletId = lib_core.getInput('wallet-id') || ''
-  const policyId = lib_core.getInput('policy-id') || ''
-  const ruleId = lib_core.getInput('rule-id') || ''
-  const quorumId = lib_core.getInput('quorum-id') || ''
-  const intentId = lib_core.getInput('intent-id') || ''
-  const transactionId = lib_core.getInput('transaction-id') || ''
-  const vaultId = lib_core.getInput('vault-id') || ''
-  const actionId = lib_core.getInput('action-id') || ''
-  const conditionSetId = lib_core.getInput('condition-set-id') || ''
-  const itemId = lib_core.getInput('item-id') || ''
-  const aggregationId = lib_core.getInput('aggregation-id') || ''
-  const entryId = lib_core.getInput('entry-id') || ''
-  const claimId = lib_core.getInput('claim-id') || ''
-  const sweepId = lib_core.getInput('sweep-id') || ''
-  const body = lib_core.getInput('body') || ''
-  const cursor = lib_core.getInput('cursor') || ''
-  const limit = lib_core.getInput('limit') || ''
-  const chainType = lib_core.getInput('chain-type') || ''
-  const chain = lib_core.getInput('chain') || ''
-  const asset = lib_core.getInput('asset') || ''
-  const token = lib_core.getInput('token') || ''
-  const address = lib_core.getInput('address') || ''
-  const email = lib_core.getInput('email') || ''
-  const phone = lib_core.getInput('phone') || ''
-  const idempotencyKey = lib_core.getInput('idempotency-key') || ''
-  const caip2 = lib_core.getInput('caip2') || ''
-  const provider = lib_core.getInput('provider') || ''
+  const userId = lib_core.getInput("user-id") || "";
+  const walletId = lib_core.getInput("wallet-id") || "";
+  const policyId = lib_core.getInput("policy-id") || "";
+  const ruleId = lib_core.getInput("rule-id") || "";
+  const quorumId = lib_core.getInput("quorum-id") || "";
+  const intentId = lib_core.getInput("intent-id") || "";
+  const transactionId = lib_core.getInput("transaction-id") || "";
+  const vaultId = lib_core.getInput("vault-id") || "";
+  const actionId = lib_core.getInput("action-id") || "";
+  const conditionSetId = lib_core.getInput("condition-set-id") || "";
+  const itemId = lib_core.getInput("item-id") || "";
+  const aggregationId = lib_core.getInput("aggregation-id") || "";
+  const entryId = lib_core.getInput("entry-id") || "";
+  const claimId = lib_core.getInput("claim-id") || "";
+  const sweepId = lib_core.getInput("sweep-id") || "";
+  const body = lib_core.getInput("body") || "";
+  const cursor = lib_core.getInput("cursor") || "";
+  const limit = lib_core.getInput("limit") || "";
+  const chainType = lib_core.getInput("chain-type") || "";
+  const chain = lib_core.getInput("chain") || "";
+  const asset = lib_core.getInput("asset") || "";
+  const token = lib_core.getInput("token") || "";
+  const address = lib_core.getInput("address") || "";
+  const email = lib_core.getInput("email") || "";
+  const phone = lib_core.getInput("phone") || "";
+  const idempotencyKey = lib_core.getInput("idempotency-key") || "";
+  const caip2 = lib_core.getInput("caip2") || "";
+  const provider = lib_core.getInput("provider") || "";
 
   const headers = {
-    Authorization: 'Basic ' + Buffer.from(`${appId}:${appSecret}`).toString('base64'),
-    'privy-app-id': appId,
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-  }
-  if (idempotencyKey) headers['privy-idempotency-key'] = idempotencyKey
+    Authorization:
+      "Basic " + Buffer.from(`${appId}:${appSecret}`).toString("base64"),
+    "privy-app-id": appId,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (idempotencyKey) headers["privy-idempotency-key"] = idempotencyKey;
 
   async function req(method, path, bodyObj) {
-    const url = `${apiUrl}${path}`
-    const opts = { method, headers: { ...headers } }
-    if (bodyObj && method !== 'GET' && method !== 'DELETE') {
-      opts.body = JSON.stringify(bodyObj)
+    const url = `${apiUrl}${path}`;
+    const opts = { method, headers: { ...headers } };
+    if (bodyObj && method !== "GET" && method !== "DELETE") {
+      opts.body = JSON.stringify(bodyObj);
     }
-    const res = await fetchWithRetry(url, opts)
+    const res = await fetchWithRetry(url, opts);
     if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      throw new error_W3ActionError('HTTP_ERROR', `${method} ${path} returned ${res.status}: ${text}`, { statusCode: res.status })
+      const text = await res.text().catch(() => "");
+      throw new error_W3ActionError(
+        "HTTP_ERROR",
+        `${method} ${path} returned ${res.status}: ${text}`,
+        { statusCode: res.status },
+      );
     }
-    if (res.status === 204) return { success: true }
-    const text = await res.text()
-    if (!text) return { success: true }
+    if (res.status === 204) return { success: true };
+    const text = await res.text();
+    if (!text) return { success: true };
     try {
-      return JSON.parse(text)
+      return JSON.parse(text);
     } catch {
-      throw new error_W3ActionError('INVALID_RESPONSE', `Privy returned unparseable response: ${text.slice(0, 200)}`)
+      throw new error_W3ActionError(
+        "INVALID_RESPONSE",
+        `Privy returned unparseable response: ${text.slice(0, 200)}`,
+      );
     }
   }
 
   function qs(p) {
-    const e = Object.entries(p).filter(([, v]) => v !== '')
-    return e.length ? '?' + e.map(([k, v]) => `${k}=${v}`).join('&') : ''
+    const e = Object.entries(p).filter(([, v]) => v !== "");
+    return e.length ? "?" + e.map(([k, v]) => `${k}=${v}`).join("&") : "";
   }
 
   function pb() {
-    if (!body) throw new error_W3ActionError('MISSING_INPUT', 'body input is required')
-    return JSON.parse(body)
+    if (!body)
+      throw new error_W3ActionError("MISSING_INPUT", "body input is required");
+    return JSON.parse(body);
   }
 
   return {
-    req, qs, pb, appId, userId, walletId, policyId, ruleId, quorumId,
-    intentId, transactionId, vaultId, actionId, conditionSetId, itemId,
-    aggregationId, entryId, claimId, sweepId, body, cursor, limit,
-    chainType, chain, asset, token, address, email, phone, caip2, provider,
-  }
+    req,
+    qs,
+    pb,
+    appId,
+    userId,
+    walletId,
+    policyId,
+    ruleId,
+    quorumId,
+    intentId,
+    transactionId,
+    vaultId,
+    actionId,
+    conditionSetId,
+    itemId,
+    aggregationId,
+    entryId,
+    claimId,
+    sweepId,
+    body,
+    cursor,
+    limit,
+    chainType,
+    chain,
+    asset,
+    token,
+    address,
+    email,
+    phone,
+    caip2,
+    provider,
+  };
 }
 
-router()
+// Suppress noisy unhandled rejection warnings; the wrapper below
+// catches via handleError, which calls core.setFailed.
+process.on("unhandledRejection", () => {});
+(async () => {
+  try {
+    await router();
+  } catch (error) {
+    handleError(error);
+  }
+})();
 

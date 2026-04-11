@@ -1,95 +1,95 @@
-name: 'W3 Privy Action'
-description: 'Privy wallet infrastructure — users, wallets, signing, policies, yield vaults, and fiat operations for W3 workflows'
-author: 'w3-io'
+name: "W3 Privy Action"
+description: "Privy wallet infrastructure — users, wallets, signing, policies, yield vaults, and fiat operations for W3 workflows"
+author: "w3-io"
 
 inputs:
   command:
-    description: '54 commands: users, wallets, EVM/Solana signing, policies, key quorums, intents, yield vaults, fiat/KYC, condition sets'
+    description: "54 commands: users, wallets, EVM/Solana signing, policies, key quorums, intents, yield vaults, fiat/KYC, condition sets"
     required: true
   app-id:
-    description: 'Privy App ID'
+    description: "Privy App ID"
     required: true
   app-secret:
-    description: 'Privy App Secret'
+    description: "Privy App Secret"
     required: true
   api-url:
-    description: 'Privy API base URL'
+    description: "Privy API base URL"
     required: false
-    default: 'https://api.privy.io/v1'
+    default: "https://api.privy.io/v1"
   body:
-    description: 'Request body as JSON'
+    description: "Request body as JSON"
     required: false
   user-id:
-    description: 'User ID (Privy DID)'
+    description: "User ID (Privy DID)"
     required: false
   wallet-id:
-    description: 'Wallet ID'
+    description: "Wallet ID"
     required: false
   policy-id:
-    description: 'Policy ID'
+    description: "Policy ID"
     required: false
   rule-id:
-    description: 'Rule ID (within a policy)'
+    description: "Rule ID (within a policy)"
     required: false
   quorum-id:
-    description: 'Key quorum ID'
+    description: "Key quorum ID"
     required: false
   intent-id:
-    description: 'Intent ID'
+    description: "Intent ID"
     required: false
   transaction-id:
-    description: 'Transaction ID'
+    description: "Transaction ID"
     required: false
   vault-id:
-    description: 'ERC-4626 vault ID'
+    description: "ERC-4626 vault ID"
     required: false
   condition-set-id:
-    description: 'Condition set ID'
+    description: "Condition set ID"
     required: false
   chain-type:
-    description: 'Chain type (ethereum, solana, bitcoin-segwit, etc.)'
+    description: "Chain type (ethereum, solana, bitcoin-segwit, etc.)"
     required: false
   address:
-    description: 'Blockchain address'
+    description: "Blockchain address"
     required: false
   email:
-    description: 'User email'
+    description: "User email"
     required: false
   phone:
-    description: 'User phone number'
+    description: "User phone number"
     required: false
   caip2:
-    description: 'CAIP-2 chain identifier (e.g. eip155:1 for Ethereum mainnet, eip155:43114 for Avalanche)'
+    description: "CAIP-2 chain identifier (e.g. eip155:1 for Ethereum mainnet, eip155:43114 for Avalanche)"
     required: false
   method:
-    description: 'RPC method name (for advanced usage)'
+    description: "RPC method name (for advanced usage)"
     required: false
   cursor:
-    description: 'Pagination cursor'
+    description: "Pagination cursor"
     required: false
   limit:
-    description: 'Page size (max 100)'
+    description: "Page size (max 100)"
     required: false
   idempotency-key:
-    description: 'Idempotency key for write operations'
+    description: "Idempotency key for write operations"
     required: false
   chain:
-    description: 'Chain for balance queries'
+    description: "Chain for balance queries"
     required: false
   token:
-    description: 'Token address for balance queries'
+    description: "Token address for balance queries"
     required: false
   asset:
-    description: 'Asset type for balance queries'
+    description: "Asset type for balance queries"
     required: false
   provider:
-    description: 'KYC provider (bridge or bridge-sandbox)'
+    description: "KYC provider (bridge or bridge-sandbox)"
     required: false
 
 outputs:
   result:
-    description: 'Command result as JSON string'
+    description: "Command result as JSON string"
 
 runs:
-  using: 'node20'
-  main: 'dist/index.js'
+  using: "node20"
+  main: "dist/index.js"
