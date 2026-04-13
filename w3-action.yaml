@@ -1,0 +1,604 @@
+kind: integration
+name: Wallet infrastructure — per-user wallets, signing, policies, yield vaults, and
+  fiat operations
+version: 0.1.0
+repo: w3-io/w3-privy-action
+partner: Privy
+description: Wallet infrastructure — per-user wallets, signing, policies, yield vaults,
+  and fiat operations
+context: 'Privy manages wallets on behalf of your users. W3 makes operations on those
+  wallets verifiable, auditable, and automated.
+
+
+  **When to use Privy vs native chain actions:** Use W3''s native ethereum/solana
+  chain actions for business-controlled treasury wallets (your keys in W3_SECRET_*).
+  Use Privy when you need per-user wallets — each user gets their own wallet, Privy
+  holds the keys, your workflows operate on them through consensus.
+
+
+  **Key value of W3 + Privy:** Privy alone means your server signs transactions —
+  single point of trust. Through W3, the same operation goes through validator consensus.
+  Multiple independent machines verify every transaction was executed correctly. For
+  businesses managing user funds, this is "trust the math" vs "trust our server."
+
+
+  **Verified batch operations:** Airdrop tokens to thousands of user wallets where
+  every transfer is receipted and independently verifiable. Use list-wallets to enumerate,
+  then eth-send-transaction or transfer for each.
+
+
+  **Automated yield:** Scheduled workflows deposit user funds into ERC-4626 vaults,
+  claim rewards, rebalance — all receipted. Use deposit-vault, claim-yield, withdraw-vault
+  with cron triggers.
+
+
+  **Cross-platform onboarding:** Create Privy user → KYC via Iron → sanctions screen
+  via Chainalysis → fund via Stripe onramp → deposit into yield. Single orchestrated
+  flow, every step verified. Use the async-callback cookbook for delivering KYC URLs
+  to your frontend.
+
+
+  **Policy-enforced operations:** Create spending policies with rules (amount limits,
+  allowed recipients). W3 adds a second verification layer — the workflow checks the
+  policy in consensus before calling Privy.
+
+
+  **Signing operations use the /rpc endpoint.** Commands like eth-send-transaction,
+  personal-sign, solana-sign-message wrap the unified /wallets/{id}/rpc endpoint.
+  The body param contains the transaction or message to sign. Use caip2 for chain
+  targeting (e.g. "eip155:11155111" for Sepolia, "eip155:1" for mainnet).
+
+
+  **Transfer vs eth-send-transaction:** transfer is a high-level operation (asset
+  name, decimal amount, chain name). eth-send-transaction is raw EVM (hex value, calldata,
+  gas). Use transfer for simple token sends, eth-send-transaction for contract interactions.
+
+
+  **Relevant patterns:** See the approval-gates cookbook for policy-enforced transfers
+  (two-workflow pattern until pause-and-resume lands). See the multi-chain-balances
+  cookbook for aggregating across user wallets on multiple chains. See the async-callback
+  cookbook for delivering KYC URLs and onboarding links. See the fiat-to-onchain cookbook
+  for Stripe/Iron onramp → Privy wallet deposit flows.
+
+
+  106 commands total. Full API reference at https://github.com/w3-io/w3-privy-action.
+  Privy docs at docs.privy.io.
+
+  '
+commands:
+- name: create-user
+  description: 'Create a user with linked accounts (email, phone, wallet) and optionally
+    pre-generate an embedded wallet. Returns user ID (DID).
+
+    '
+  inputs:
+    body:
+      type: object
+      required: true
+      description: 'User params. Example: {"linked_accounts": [{"type": "email", "address":
+        "user@example.com"}], "create_ethereum_wallet": true}
+
+        '
+  outputs:
+    result:
+      type: object
+      description: '{id (DID), linked_accounts, created_at}'
+- name: get-user
+  description: Get user by Privy DID.
+  inputs:
+    user-id:
+      type: string
+      required: true
+      description: Privy DID (did:privy:...)
+  outputs:
+    result:
+      type: object
+      description: Full user object with linked_accounts, wallets, metadata
+- name: list-users
+  description: List all users (paginated, max 100 per page).
+  inputs:
+    limit:
+      type: number
+      required: false
+      description: Page size (max 100)
+  outputs:
+    result:
+      type: object
+      description: '{data: [users], next_cursor}'
+- name: delete-user
+  description: Delete a user and all associated data.
+  inputs:
+    user-id:
+      type: string
+      required: true
+      description: Privy DID
+  outputs:
+    result:
+      type: object
+      description: '{success: true}'
+- name: search-users
+  description: Search users by term, email, or phone.
+  inputs:
+    body:
+      type: object
+      required: true
+      description: '{searchTerm: ''...''} or {emails: [''...'']} or {phoneNumbers:
+        [''...'']}'
+  outputs:
+    result:
+      type: object
+      description: '{data: [matching users]}'
+- name: get-user-by-email
+  description: Lookup a user by their email address.
+  inputs:
+    email:
+      type: string
+      required: true
+      description: Email address
+  outputs:
+    result:
+      type: object
+      description: User object (or error if not found)
+- name: create-wallet
+  description: 'Create a server wallet. Supports ethereum, solana, bitcoin-segwit,
+    cosmos, stellar, sui, aptos, tron, near, ton, starknet.
+
+    '
+  inputs:
+    chain-type:
+      type: string
+      required: false
+      description: 'Chain type (default: ethereum)'
+    body:
+      type: object
+      required: false
+      description: 'Optional: {chain_type, owner_id, policy_ids}'
+  outputs:
+    result:
+      type: object
+      description: '{id, address, chain_type, created_at}'
+- name: list-wallets
+  description: List all wallets with optional filters.
+  inputs:
+    chain-type:
+      type: string
+      required: false
+      description: Filter by chain
+    user-id:
+      type: string
+      required: false
+      description: Filter by user
+  outputs:
+    result:
+      type: object
+      description: '{data: [wallets], next_cursor}'
+- name: get-wallet
+  description: Get wallet details by ID.
+  inputs:
+    wallet-id:
+      type: string
+      required: true
+      description: Wallet ID
+  outputs:
+    result:
+      type: object
+      description: '{id, address, chain_type, policies, owner}'
+- name: get-wallet-balance
+  description: 'Get wallet balance. Chain values: ethereum, sepolia, arbitrum, base,
+    polygon, solana, etc. Asset values: eth, usdc, usdc.e, usdt.
+
+    '
+  inputs:
+    wallet-id:
+      type: string
+      required: true
+      description: Wallet ID
+    chain:
+      type: string
+      required: true
+      description: Chain name (ethereum, sepolia, arbitrum, base, etc.)
+    asset:
+      type: string
+      required: true
+      description: Asset (eth, usdc, usdc.e, usdt)
+  outputs:
+    result:
+      type: object
+      description: '{balances: [{chain, asset, raw_value, display_values}]}'
+- name: batch-create-wallets
+  description: Create multiple wallets in one request.
+  inputs:
+    body:
+      type: object
+      required: true
+      description: '{wallets: [{chain_type: ''ethereum''}, {chain_type: ''solana''}]}'
+  outputs:
+    result:
+      type: object
+      description: '{wallets: [created wallet objects]}'
+- name: eth-send-transaction
+  description: 'Sign and broadcast an EVM transaction. Requires funded wallet for
+    gas. Use caip2 to specify the chain (e.g. "eip155:11155111" for Sepolia).
+
+    '
+  inputs:
+    wallet-id:
+      type: string
+      required: true
+      description: Wallet ID
+    caip2:
+      type: string
+      required: true
+      description: CAIP-2 chain ID (eip155:1 = mainnet, eip155:11155111 = Sepolia)
+    body:
+      type: object
+      required: true
+      description: '{transaction: {to, value (hex), type: 2, data (optional)}}'
+  outputs:
+    result:
+      type: object
+      description: '{data: {hash: ''0x...''}}'
+- name: eth-sign-transaction
+  description: Sign an EVM transaction without broadcasting. Returns signed tx bytes.
+  inputs:
+    wallet-id:
+      type: string
+      required: true
+      description: Wallet ID
+    body:
+      type: object
+      required: true
+      description: '{transaction: {to, value, chain_id (number), type: 2}}'
+  outputs:
+    result:
+      type: object
+      description: '{data: {signed_transaction: ''0x...''}}'
+- name: personal-sign
+  description: Sign a message (EIP-191).
+  inputs:
+    wallet-id:
+      type: string
+      required: true
+      description: Wallet ID
+    body:
+      type: object
+      required: true
+      description: '{message: ''Hello'', encoding: ''utf-8''}'
+  outputs:
+    result:
+      type: object
+      description: '{data: {signature: ''0x...''}}'
+- name: solana-sign-message
+  description: Sign a message with a Solana wallet.
+  inputs:
+    wallet-id:
+      type: string
+      required: true
+      description: Solana wallet ID
+    body:
+      type: object
+      required: true
+      description: '{message: ''<base64>'', encoding: ''base64''}'
+  outputs:
+    result:
+      type: object
+      description: '{data: {signature: ''...''}}'
+- name: raw-sign
+  description: Raw secp256k1 signature over a hash.
+  inputs:
+    wallet-id:
+      type: string
+      required: true
+      description: Wallet ID
+    body:
+      type: object
+      required: true
+      description: '{hash: ''0x...'' (32 bytes hex)}'
+  outputs:
+    result:
+      type: object
+      description: '{data: {signature: ''0x...''}}'
+- name: transfer
+  description: 'High-level token transfer. Simpler than eth-send-transaction — uses
+    asset names and decimal amounts instead of hex.
+
+    '
+  inputs:
+    wallet-id:
+      type: string
+      required: true
+      description: Wallet ID
+    body:
+      type: object
+      required: true
+      description: "{source: {asset: \"eth\"|\"usdc\", amount: \"1.5\", chain: \"\
+        ethereum_sepolia\"},\n destination: {address: \"0x...\"}}\n"
+  outputs:
+    result:
+      type: object
+      description: '{id, status, transaction_hash}'
+- name: create-policy
+  description: Create a spending/signing policy with rules.
+  inputs:
+    body:
+      type: object
+      required: true
+      description: '{version: ''1.0'', name: ''...'', chain_type: ''ethereum'', rules:
+        [...]}'
+  outputs:
+    result:
+      type: object
+      description: '{id, name, chain_type, rules, created_at}'
+- name: get-policy
+  description: Get policy details.
+  inputs:
+    policy-id:
+      type: string
+      required: true
+      description: Policy ID
+  outputs:
+    result:
+      type: object
+      description: Full policy with rules
+- name: delete-policy
+  description: Delete a policy.
+  inputs:
+    policy-id:
+      type: string
+      required: true
+      description: Policy ID
+  outputs:
+    result:
+      type: object
+      description: '{success: true}'
+- name: deposit-vault
+  description: Deposit assets from a wallet into an ERC-4626 yield vault.
+  inputs:
+    wallet-id:
+      type: string
+      required: true
+      description: Wallet ID
+    body:
+      type: object
+      required: true
+      description: Deposit params (vault_id, amount)
+  outputs:
+    result:
+      type: object
+      description: Deposit transaction details
+- name: claim-yield
+  description: Claim accrued yield rewards from a vault.
+  inputs:
+    wallet-id:
+      type: string
+      required: true
+      description: Wallet ID
+    body:
+      type: object
+      required: true
+      description: Claim params (vault_id)
+  outputs:
+    result:
+      type: object
+      description: Claim transaction details
+- name: withdraw-vault
+  description: Withdraw assets from a yield vault.
+  inputs:
+    wallet-id:
+      type: string
+      required: true
+      description: Wallet ID
+    body:
+      type: object
+      required: true
+      description: Withdraw params (vault_id, amount)
+  outputs:
+    result:
+      type: object
+      description: Withdrawal transaction details
+- name: start-kyc
+  description: Start KYC verification for a user. Returns verification URL.
+  inputs:
+    user-id:
+      type: string
+      required: true
+      description: User DID
+    body:
+      type: object
+      required: true
+      description: KYC params (provider, data with name, email, address, DOB)
+  outputs:
+    result:
+      type: object
+      description: KYC session with status and verification URL
+- name: get-kyc-status
+  description: Check KYC verification status.
+  inputs:
+    user-id:
+      type: string
+      required: true
+      description: User DID
+  outputs:
+    result:
+      type: object
+      description: '{status, provider, details}'
+- name: get-wallet-transactions
+  description: 'Get incoming and outgoing transactions for a wallet. Requires both
+    chain and asset params.
+
+    '
+  inputs:
+    wallet-id:
+      type: string
+      required: true
+      description: Wallet ID
+    chain:
+      type: string
+      required: true
+      description: Chain (ethereum, sepolia, arbitrum, base, solana, etc.)
+    asset:
+      type: string
+      required: true
+      description: Asset (eth, usdc, etc.)
+  outputs:
+    result:
+      type: object
+      description: '{data: [transactions], next_cursor}'
+- name: set-user-metadata
+  description: Set user metadata.
+- name: link-account
+  description: Link account.
+- name: unlink-account
+  description: Unlink account.
+- name: pregenerate-wallets
+  description: Pregenerate wallets.
+- name: get-user-by-phone
+  description: Get user by phone.
+- name: get-user-by-smart-wallet
+  description: Get user by smart wallet.
+- name: get-user-by-discord
+  description: Get user by discord.
+- name: get-user-by-telegram-id
+  description: Get user by telegram id.
+- name: get-user-by-telegram-username
+  description: Get user by telegram username.
+- name: get-user-by-farcaster
+  description: Get user by farcaster.
+- name: get-user-by-instagram
+  description: Get user by instagram.
+- name: get-user-by-twitter
+  description: Get user by twitter.
+- name: get-user-by-twitter-id
+  description: Get user by twitter id.
+- name: get-user-by-github
+  description: Get user by github.
+- name: get-user-by-twitch
+  description: Get user by twitch.
+- name: get-user-by-spotify
+  description: Get user by spotify.
+- name: get-user-by-custom-auth
+  description: Get user by custom auth.
+- name: create-custodial-wallet
+  description: Create custodial wallet.
+- name: get-wallet-by-address
+  description: Get wallet by address.
+- name: update-wallet
+  description: Update wallet.
+- name: export-wallet
+  description: Export wallet.
+- name: authenticate-wallet
+  description: Authenticate wallet.
+- name: get-wallet-action
+  description: Get wallet action.
+- name: swap
+  description: Swap.
+- name: get-swap-quote
+  description: Get swap quote.
+- name: eth-sign-typed-data
+  description: Eth sign typed data.
+- name: eth-sign-7702
+  description: Eth sign 7702.
+- name: eth-sign-user-operation
+  description: Eth sign user operation.
+- name: solana-send-transaction
+  description: Solana send transaction.
+- name: solana-sign-transaction
+  description: Solana sign transaction.
+- name: bitcoin-sign-psbt
+  description: Bitcoin sign psbt.
+- name: spark-transfer
+  description: Spark transfer.
+- name: spark-transfer-tokens
+  description: Spark transfer tokens.
+- name: get-transaction
+  description: Get transaction.
+- name: update-policy
+  description: Update policy.
+- name: create-rule
+  description: Create rule.
+- name: get-rule
+  description: Get rule.
+- name: update-rule
+  description: Update rule.
+- name: delete-rule
+  description: Delete rule.
+- name: create-quorum
+  description: Create quorum.
+- name: get-quorum
+  description: Get quorum.
+- name: update-quorum
+  description: Update quorum.
+- name: delete-quorum
+  description: Delete quorum.
+- name: create-rpc-intent
+  description: Create rpc intent.
+- name: create-wallet-update-intent
+  description: Create wallet update intent.
+- name: create-policy-update-intent
+  description: Create policy update intent.
+- name: create-rule-intent
+  description: Create rule intent.
+- name: update-rule-intent
+  description: Update rule intent.
+- name: delete-rule-intent
+  description: Delete rule intent.
+- name: create-quorum-update-intent
+  description: Create quorum update intent.
+- name: get-intent
+  description: Get intent.
+- name: list-intents
+  description: List intents.
+- name: get-vault
+  description: Get vault.
+- name: get-vault-position
+  description: Get vault position.
+- name: get-claim
+  description: Get claim.
+- name: get-sweep
+  description: Get sweep.
+- name: update-kyc
+  description: Update kyc.
+- name: get-kyc-link
+  description: Get kyc link.
+- name: create-fiat-tos
+  description: Create fiat tos.
+- name: create-fiat-account
+  description: Create fiat account.
+- name: list-fiat-accounts
+  description: List fiat accounts.
+- name: initiate-onramp
+  description: Initiate onramp.
+- name: initiate-offramp
+  description: Initiate offramp.
+- name: list-fiat-transactions
+  description: List fiat transactions.
+- name: create-condition-set
+  description: Create condition set.
+- name: get-condition-set
+  description: Get condition set.
+- name: update-condition-set
+  description: Update condition set.
+- name: delete-condition-set
+  description: Delete condition set.
+- name: add-condition-set-items
+  description: Add condition set items.
+- name: replace-condition-set-items
+  description: Replace condition set items.
+- name: list-condition-set-items
+  description: List condition set items.
+- name: get-condition-set-item
+  description: Get condition set item.
+- name: delete-condition-set-item
+  description: Delete condition set item.
+- name: add-allowlist-entry
+  description: Add allowlist entry.
+- name: list-allowlist
+  description: List allowlist.
+- name: delete-allowlist-entry
+  description: Delete allowlist entry.
+- name: create-aggregation
+  description: Create aggregation.
+- name: get-aggregation
+  description: Get aggregation.
+- name: delete-aggregation
+  description: Delete aggregation.
