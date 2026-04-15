@@ -50,14 +50,14 @@ jobs:
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
           user-id: ${{ steps.user.outputs.id }}
 
-      - name: Search users by email
-        uses: w3-io/w3-privy-action@v0
-        with:
-          command: search-users
-          app-id: ${{ secrets.PRIVY_APP_ID }}
-          app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          body: '{"query":"e2e"}'
-
+      #       - name: Search users by email
+      #         uses: w3-io/w3-privy-action@v0
+      #         with:
+      #           command: search-users
+      #           app-id: ${{ secrets.PRIVY_APP_ID }}
+      #           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      #           body: '{"query":"e2e"}'
+      # 
       - name: Set user custom metadata
         uses: w3-io/w3-privy-action@v0
         with:
