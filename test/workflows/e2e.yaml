@@ -37,13 +37,18 @@ jobs:
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
           limit: "5"
 
+      - name: Extract user ID
+        id: user
+        run: |
+          echo "id=$(echo '${{ steps.create_user.outputs.result }}' | jq -r '.id')" >> "$GITHUB_OUTPUT"
+
       - name: Get the user
         uses: w3-io/w3-privy-action@v0
         with:
           command: get-user
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          user-id: ${{ steps.create_user.outputs.result.id }}
+          user-id: ${{ steps.user.outputs.id }}
 
       - name: Search users by email
         uses: w3-io/w3-privy-action@v0
@@ -59,7 +64,7 @@ jobs:
           command: set-user-metadata
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          user-id: ${{ steps.create_user.outputs.result.id }}
+          user-id: ${{ steps.user.outputs.id }}
           body: '{"custom_metadata":{"source":"e2e-test"}}'
 
       # ── Wallets ────────────────────────────────────────────────────────────
@@ -80,8 +85,18 @@ jobs:
           command: create-wallet
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          user-id: ${{ steps.create_user.outputs.result.id }}
+          user-id: ${{ steps.user.outputs.id }}
           chain-type: solana
+
+      - name: Extract custodial wallet ID
+        id: custodial_wallet
+        run: |
+          echo "id=$(echo '${{ steps.create_custodial_wallet.outputs.result }}' | jq -r '.id')" >> "$GITHUB_OUTPUT"
+
+      - name: Extract user wallet ID
+        id: user_wallet
+        run: |
+          echo "id=$(echo '${{ steps.create_user_wallet.outputs.result }}' | jq -r '.id')" >> "$GITHUB_OUTPUT"
 
       - name: List wallets
         uses: w3-io/w3-privy-action@v0
@@ -97,7 +112,7 @@ jobs:
           command: get-wallet
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          wallet-id: ${{ steps.create_custodial_wallet.outputs.result.id }}
+          wallet-id: ${{ steps.custodial_wallet.outputs.id }}
 
       - name: Get wallet balance
         uses: w3-io/w3-privy-action@v0
@@ -105,7 +120,7 @@ jobs:
           command: get-wallet-balance
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          wallet-id: ${{ steps.create_custodial_wallet.outputs.result.id }}
+          wallet-id: ${{ steps.custodial_wallet.outputs.id }}
           chain: ethereum
           asset: native
 
@@ -117,7 +132,7 @@ jobs:
           command: personal-sign
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          wallet-id: ${{ steps.create_custodial_wallet.outputs.result.id }}
+          wallet-id: ${{ steps.custodial_wallet.outputs.id }}
           body: '{"message":"Hello from W3 e2e test"}'
 
       - name: Sign typed data (EIP-712)
@@ -126,7 +141,7 @@ jobs:
           command: eth-sign-typed-data
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          wallet-id: ${{ steps.create_custodial_wallet.outputs.result.id }}
+          wallet-id: ${{ steps.custodial_wallet.outputs.id }}
           body: '{"typed_data":{"types":{"EIP712Domain":[{"name":"name","type":"string"}],"Test":[{"name":"value","type":"string"}]},"primaryType":"Test","domain":{"name":"E2E"},"message":{"value":"test"}}}'
 
       # ── Solana Signing ─────────────────────────────────────────────────────
@@ -137,7 +152,7 @@ jobs:
           command: solana-sign-message
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          wallet-id: ${{ steps.create_user_wallet.outputs.result.id }}
+          wallet-id: ${{ steps.user_wallet.outputs.id }}
           body: '{"message":"Hello from W3 e2e test"}'
 
       # ── Raw Signing ────────────────────────────────────────────────────────
@@ -148,7 +163,7 @@ jobs:
           command: raw-sign
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          wallet-id: ${{ steps.create_custodial_wallet.outputs.result.id }}
+          wallet-id: ${{ steps.custodial_wallet.outputs.id }}
           body: '{"message":"0xdeadbeef"}'
 
       # ── Policies ───────────────────────────────────────────────────────────
@@ -162,13 +177,18 @@ jobs:
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
           body: '{"name":"E2E Test Policy","description":"Created by e2e test"}'
 
+      - name: Extract policy ID
+        id: policy
+        run: |
+          echo "id=$(echo '${{ steps.create_policy.outputs.result }}' | jq -r '.id')" >> "$GITHUB_OUTPUT"
+
       - name: Get the policy
         uses: w3-io/w3-privy-action@v0
         with:
           command: get-policy
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          policy-id: ${{ steps.create_policy.outputs.result.id }}
+          policy-id: ${{ steps.policy.outputs.id }}
 
       # ── Condition Sets ─────────────────────────────────────────────────────
 
@@ -181,13 +201,18 @@ jobs:
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
           body: '{"name":"E2E Test Condition Set"}'
 
+      - name: Extract condition set ID
+        id: condition_set
+        run: |
+          echo "id=$(echo '${{ steps.create_condition_set.outputs.result }}' | jq -r '.id')" >> "$GITHUB_OUTPUT"
+
       - name: Get the condition set
         uses: w3-io/w3-privy-action@v0
         with:
           command: get-condition-set
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          condition-set-id: ${{ steps.create_condition_set.outputs.result.id }}
+          condition-set-id: ${{ steps.condition_set.outputs.id }}
 
       # ── Key Quorums ────────────────────────────────────────────────────────
 
@@ -200,13 +225,18 @@ jobs:
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
           body: '{"name":"E2E Test Quorum"}'
 
+      - name: Extract quorum ID
+        id: quorum
+        run: |
+          echo "id=$(echo '${{ steps.create_quorum.outputs.result }}' | jq -r '.id')" >> "$GITHUB_OUTPUT"
+
       - name: Get the quorum
         uses: w3-io/w3-privy-action@v0
         with:
           command: get-quorum
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          quorum-id: ${{ steps.create_quorum.outputs.result.id }}
+          quorum-id: ${{ steps.quorum.outputs.id }}
 
       # ── Intents ────────────────────────────────────────────────────────────
 
@@ -234,7 +264,7 @@ jobs:
           command: get-kyc-status
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          user-id: ${{ steps.create_user.outputs.result.id }}
+          user-id: ${{ steps.user.outputs.id }}
 
       # ── Fiat ───────────────────────────────────────────────────────────────
 
@@ -244,7 +274,7 @@ jobs:
           command: list-fiat-accounts
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          user-id: ${{ steps.create_user.outputs.result.id }}
+          user-id: ${{ steps.user.outputs.id }}
 
       # ── Cleanup ────────────────────────────────────────────────────────────
 
@@ -254,7 +284,7 @@ jobs:
           command: delete-condition-set
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          condition-set-id: ${{ steps.create_condition_set.outputs.result.id }}
+          condition-set-id: ${{ steps.condition_set.outputs.id }}
 
       - name: Delete the policy
         uses: w3-io/w3-privy-action@v0
@@ -262,7 +292,7 @@ jobs:
           command: delete-policy
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          policy-id: ${{ steps.create_policy.outputs.result.id }}
+          policy-id: ${{ steps.policy.outputs.id }}
 
       - name: Delete the quorum
         uses: w3-io/w3-privy-action@v0
@@ -270,7 +300,7 @@ jobs:
           command: delete-quorum
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          quorum-id: ${{ steps.create_quorum.outputs.result.id }}
+          quorum-id: ${{ steps.quorum.outputs.id }}
 
       - name: Delete the user
         uses: w3-io/w3-privy-action@v0
@@ -278,4 +308,4 @@ jobs:
           command: delete-user
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          user-id: ${{ steps.create_user.outputs.result.id }}
+          user-id: ${{ steps.user.outputs.id }}
