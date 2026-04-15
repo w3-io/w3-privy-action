@@ -70,25 +70,23 @@ jobs:
           user-id: ${{ steps.user.outputs.id }}
           body: '{"custom_metadata":{"source":"e2e-test"}}'
 
-      # SKIP: link-account requires specific linked_account format
-      # - name: Link an account to user
-      #   uses: w3-io/w3-privy-action@v0
-      #   with:
-      #     command: link-account
-      #     app-id: ${{ secrets.PRIVY_APP_ID }}
-      #     app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-      #     user-id: ${{ steps.user.outputs.id }}
-      #     body: '{"type":"phone","number":"+15555550100"}'
+      - name: Link an email account to user
+        uses: w3-io/w3-privy-action@v0
+        with:
+          command: link-account
+          app-id: ${{ secrets.PRIVY_APP_ID }}
+          app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+          user-id: ${{ steps.user.outputs.id }}
+          body: '{"type":"email","address":"e2e-link@example.com"}'
 
-      # SKIP: unlink depends on link-account above
-      # - name: Unlink the phone account
-      #   uses: w3-io/w3-privy-action@v0
-      #   with:
-      #     command: unlink-account
-      #     app-id: ${{ secrets.PRIVY_APP_ID }}
-      #     app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-      #     user-id: ${{ steps.user.outputs.id }}
-      #     body: '{"type":"phone","number":"+15555550100"}'
+      - name: Unlink the email account
+        uses: w3-io/w3-privy-action@v0
+        with:
+          command: unlink-account
+          app-id: ${{ secrets.PRIVY_APP_ID }}
+          app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+          user-id: ${{ steps.user.outputs.id }}
+          body: '{"type":"email","address":"e2e-link@example.com"}'
 
       - name: Pregenerate wallets for user
         uses: w3-io/w3-privy-action@v0
