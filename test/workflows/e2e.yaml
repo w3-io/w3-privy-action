@@ -124,19 +124,20 @@ jobs:
 
       # ── Wallets ────────────────────────────────────────────────────────────
 
-      - name: Create a custodial wallet
-        id: create_custodial_wallet
-        uses: w3-io/w3-privy-action@v0
-        with:
-          command: create-custodial-wallet
-          app-id: ${{ secrets.PRIVY_APP_ID }}
-          app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          body: '{"chain_type":"ethereum"}'
-
-      - name: Create a user wallet
-        id: create_user_wallet
-        uses: w3-io/w3-privy-action@v0
-        with:
+      # SKIP: custodial wallets require elevated API permissions
+      #       - name: Create a custodial wallet
+      #         id: create_custodial_wallet
+      #         uses: w3-io/w3-privy-action@v0
+      #         with:
+      #           command: create-custodial-wallet
+      #           app-id: ${{ secrets.PRIVY_APP_ID }}
+      #           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      #           body: '{"chain_type":"ethereum"}'
+      # 
+      #       - name: Create a user wallet
+      #         id: create_user_wallet
+      #         uses: w3-io/w3-privy-action@v0
+      #         with:
           command: create-wallet
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
