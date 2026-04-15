@@ -1,0 +1,270 @@
+# E2E Test Workflow
+#
+# Exercises representative commands from each Privy API group.
+# Run on a local W3 network with:
+#   w3 workflow deploy test/workflows/e2e.yaml
+#   w3 workflow "privy-e2e" trigger
+#
+# Prerequisites:
+#   - W3 local network running (make dev)
+#   - W3_SECRET_PRIVY_APP_ID set to a Privy app ID
+#   - W3_SECRET_PRIVY_APP_SECRET set to a Privy app secret
+
+name: privy-e2e
+
+steps:
+  # ── Users ──────────────────────────────────────────────────────────────
+
+  - name: Create a user
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: create-user
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      body: '{"create_ethereum_wallet":true}'
+
+  - name: List users
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: list-users
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      limit: "5"
+
+  - name: Get the user
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: get-user
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      user-id: ${{ steps.create-a-user.outputs.result.id }}
+
+  - name: Search users by email
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: search-users
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      body: '{"query":"e2e"}'
+
+  - name: Set user custom metadata
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: set-user-metadata
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      user-id: ${{ steps.create-a-user.outputs.result.id }}
+      body: '{"custom_metadata":{"source":"e2e-test"}}'
+
+  # ── Wallets ────────────────────────────────────────────────────────────
+
+  - name: Create a custodial wallet
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: create-custodial-wallet
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      chain-type: ethereum
+
+  - name: Create a user wallet
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: create-wallet
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      user-id: ${{ steps.create-a-user.outputs.result.id }}
+      chain-type: solana
+
+  - name: List wallets
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: list-wallets
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      limit: "5"
+
+  - name: Get the custodial wallet
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: get-wallet
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      wallet-id: ${{ steps.create-a-custodial-wallet.outputs.result.id }}
+
+  - name: Get wallet balance
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: get-wallet-balance
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      wallet-id: ${{ steps.create-a-custodial-wallet.outputs.result.id }}
+      chain: ethereum
+      asset: native
+
+  # ── EVM Signing ────────────────────────────────────────────────────────
+
+  - name: Personal sign with EVM wallet
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: personal-sign
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      wallet-id: ${{ steps.create-a-custodial-wallet.outputs.result.id }}
+      body: '{"message":"Hello from W3 e2e test"}'
+
+  - name: Sign typed data (EIP-712)
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: eth-sign-typed-data
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      wallet-id: ${{ steps.create-a-custodial-wallet.outputs.result.id }}
+      body: '{"typed_data":{"types":{"EIP712Domain":[{"name":"name","type":"string"}],"Test":[{"name":"value","type":"string"}]},"primaryType":"Test","domain":{"name":"E2E"},"message":{"value":"test"}}}'
+
+  # ── Solana Signing ─────────────────────────────────────────────────────
+
+  - name: Solana sign message
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: solana-sign-message
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      wallet-id: ${{ steps.create-a-user-wallet.outputs.result.id }}
+      body: '{"message":"Hello from W3 e2e test"}'
+
+  # ── Raw Signing ────────────────────────────────────────────────────────
+
+  - name: Raw sign a message
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: raw-sign
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      wallet-id: ${{ steps.create-a-custodial-wallet.outputs.result.id }}
+      body: '{"message":"0xdeadbeef"}'
+
+  # ── Policies ───────────────────────────────────────────────────────────
+
+  - name: Create a policy
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: create-policy
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      body: '{"name":"E2E Test Policy","description":"Created by e2e test"}'
+
+  - name: Get the policy
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: get-policy
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      policy-id: ${{ steps.create-a-policy.outputs.result.id }}
+
+  # ── Condition Sets ─────────────────────────────────────────────────────
+
+  - name: Create a condition set
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: create-condition-set
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      body: '{"name":"E2E Test Condition Set"}'
+
+  - name: Get the condition set
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: get-condition-set
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      condition-set-id: ${{ steps.create-a-condition-set.outputs.result.id }}
+
+  # ── Key Quorums ────────────────────────────────────────────────────────
+
+  - name: Create a key quorum
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: create-quorum
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      body: '{"name":"E2E Test Quorum"}'
+
+  - name: Get the quorum
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: get-quorum
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      quorum-id: ${{ steps.create-a-key-quorum.outputs.result.id }}
+
+  # ── Intents ────────────────────────────────────────────────────────────
+
+  - name: List intents
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: list-intents
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+
+  # ── Allowlist ──────────────────────────────────────────────────────────
+
+  - name: List allowlist
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: list-allowlist
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+
+  # ── KYC ────────────────────────────────────────────────────────────────
+
+  - name: Get KYC status
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: get-kyc-status
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      user-id: ${{ steps.create-a-user.outputs.result.id }}
+
+  # ── Fiat ───────────────────────────────────────────────────────────────
+
+  - name: List fiat accounts
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: list-fiat-accounts
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      user-id: ${{ steps.create-a-user.outputs.result.id }}
+
+  # ── Cleanup ────────────────────────────────────────────────────────────
+
+  - name: Delete the condition set
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: delete-condition-set
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      condition-set-id: ${{ steps.create-a-condition-set.outputs.result.id }}
+
+  - name: Delete the policy
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: delete-policy
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      policy-id: ${{ steps.create-a-policy.outputs.result.id }}
+
+  - name: Delete the quorum
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: delete-quorum
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      quorum-id: ${{ steps.create-a-key-quorum.outputs.result.id }}
+
+  - name: Delete the user
+    uses: w3-io/w3-privy-action@v0
+    with:
+      command: delete-user
+      app-id: ${{ secrets.PRIVY_APP_ID }}
+      app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      user-id: ${{ steps.create-a-user.outputs.result.id }}
