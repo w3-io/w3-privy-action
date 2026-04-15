@@ -131,7 +131,7 @@ jobs:
           command: create-custodial-wallet
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          chain-type: ethereum
+          body: '{"chain_type":"ethereum"}'
 
       - name: Create a user wallet
         id: create_user_wallet
