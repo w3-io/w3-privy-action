@@ -171,13 +171,14 @@ jobs:
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
           limit: "5"
 
-      - name: Get the custodial wallet
-        uses: w3-io/w3-privy-action@v0
-      # SKIP: Signing operations require custodial/user wallets (elevated API permissions)
-      #         with:
-      #           command: get-wallet
-      #           app-id: ${{ secrets.PRIVY_APP_ID }}
-      #           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
+      # SKIP: custodial wallet not created (elevated API permissions)
+      #       - name: Get the custodial wallet
+      #         uses: w3-io/w3-privy-action@v0
+      #       # SKIP: Signing operations require custodial/user wallets (elevated API permissions)
+      #       #         with:
+      #       #           command: get-wallet
+      #       #           app-id: ${{ secrets.PRIVY_APP_ID }}
+      #       #           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
       #           wallet-id: ${{ steps.custodial_wallet.outputs.id }}
       # 
       #       - name: Get wallet by address
