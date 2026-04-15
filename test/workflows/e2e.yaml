@@ -27,7 +27,7 @@ jobs:
           command: create-user
           app-id: ${{ secrets.PRIVY_APP_ID }}
           app-secret: ${{ secrets.PRIVY_APP_SECRET }}
-          body: '{"linked_accounts":[{"type":"email","email":"e2e-test@example.com"}],"create_ethereum_wallet":true}'
+          body: '{"linked_accounts":[{"type":"email","address":"e2e-test@example.com"}],"create_ethereum_wallet":true}'
 
       - name: List users
         uses: w3-io/w3-privy-action@v0
