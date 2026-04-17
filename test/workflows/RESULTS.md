@@ -26,19 +26,18 @@
 
 ## Skipped Commands
 
-| Command                                                                                        | Reason                                  |
-| ---------------------------------------------------------------------------------------------- | --------------------------------------- |
-| Custodial wallet commands (`create-custodial-wallet`, `create-wallet`, `batch-create-wallets`) | Requires elevated permissions           |
-| Signing commands (`personal-sign`, `eth-sign-typed-data`, `solana-sign-message`, `raw-sign`)   | Requires wallets to be created first    |
-| Policy/rule/condition commands (`create-policy`, `create-rule`, `create-condition-set`, etc.)  | API format differences                  |
-| Social lookup commands (`get-user-by-phone`, `get-user-by-discord`, etc.)                      | Requires linked accounts                |
-| `link-account` / `unlink-account`                                                              | Requires specific linked_account format |
-| `search-users`                                                                                 | Requires specific query format          |
-| `export-wallet` / `authenticate-wallet`                                                        | Requires feature config                 |
-| `transfer` / `swap` / `get-swap-quote`                                                         | Requires funded wallet                  |
-| Transaction commands (`eth-send-transaction`, `solana-send-transaction`)                       | Requires funded wallet                  |
-| Quorum/intent commands                                                                         | Requires policy/quorum-gated setup      |
-| Yield/fiat/KYC write commands                                                                  | Requires provider config                |
+| Command                                                                                        | Reason                                   |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Custodial wallet commands (`create-custodial-wallet`, `create-wallet`, `batch-create-wallets`) | Requires elevated permissions            |
+| Signing commands (`personal-sign`, `eth-sign-typed-data`, `solana-sign-message`, `raw-sign`)   | Requires wallets to be created first     |
+| Policy/rule/condition commands (`create-policy`, `create-rule`, `create-condition-set`, etc.)  | Requires elevated permissions / auth sig |
+| Social lookup commands (`get-user-by-phone`, `get-user-by-discord`, etc.)                      | Requires linked accounts                 |
+| `search-users`                                                                                 | Needs test users to search               |
+| `export-wallet` / `authenticate-wallet`                                                        | Requires feature config                  |
+| `transfer` / `swap` / `get-swap-quote`                                                         | Requires funded wallet                   |
+| Transaction commands (`eth-send-transaction`, `solana-send-transaction`)                       | Requires funded wallet                   |
+| Quorum/intent commands                                                                         | Requires policy/quorum-gated setup       |
+| Yield/fiat/KYC write commands                                                                  | Requires provider config                 |
 
 ## How to run
 
