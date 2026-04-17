@@ -1,6 +1,6 @@
 # W3 Privy Action Reference Guide
 
-W3 Privy Action provides wallet infrastructure for W3 workflows -- user management, server wallet creation (EVM, Solana, Bitcoin, and more), transaction signing, spending policies, key quorums, and fiat on/off-ramp via KYC. This guide focuses on users, wallets, signing, and policies. See the [README](../README.md) for the full 54-command reference.
+W3 Privy Action provides wallet infrastructure for W3 workflows -- user management, server wallet creation (EVM, Solana, Bitcoin, and more), transaction signing, spending policies, key quorums, and fiat on/off-ramp via KYC. This guide focuses on users, wallets, signing, and policies. See the [README](../README.md) for the full 52-command reference.
 
 ## Quick Start
 

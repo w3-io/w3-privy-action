@@ -87,22 +87,9 @@ const router = createCommandRouter({
       await req("POST", `/users/${userId}/custom_metadata`, pb()),
     );
   },
-  "link-account": async () => {
-    const { req, pb, userId } = setup();
-    if (!userId) throw new W3ActionError("MISSING_INPUT", "user-id required");
-    setJsonOutput(
-      "result",
-      await req("POST", `/users/${userId}/accounts`, pb()),
-    );
-  },
-  "unlink-account": async () => {
-    const { req, pb, userId } = setup();
-    if (!userId) throw new W3ActionError("MISSING_INPUT", "user-id required");
-    setJsonOutput(
-      "result",
-      await req("POST", `/users/${userId}/accounts/unlink`, pb()),
-    );
-  },
+  // link-account and unlink-account removed: the Privy REST API has no
+  // endpoints for adding or removing linked accounts on existing users.
+  // Account linking is a client-SDK-only operation.
   "pregenerate-wallets": async () => {
     const { req, pb, userId, body, chainType } = setup();
     if (!userId) throw new W3ActionError("MISSING_INPUT", "user-id required");
@@ -1011,6 +998,7 @@ function setup() {
   const idempotencyKey = core.getInput("idempotency-key") || "";
   const caip2 = core.getInput("caip2") || "";
   const provider = core.getInput("provider") || "";
+  const authorizationSignature = core.getInput("authorization-signature") || "";
 
   const headers = {
     Authorization:
@@ -1020,6 +1008,8 @@ function setup() {
     Accept: "application/json",
   };
   if (idempotencyKey) headers["privy-idempotency-key"] = idempotencyKey;
+  if (authorizationSignature)
+    headers["privy-authorization-signature"] = authorizationSignature;
 
   async function req(method, path, bodyObj) {
     const url = `${apiUrl}${path}`;

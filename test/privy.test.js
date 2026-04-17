@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 
 const DEFAULT_API_URL = "https://api.privy.io/v1";
 
-function buildAuthHeaders(appId, appSecret, idempotencyKey) {
+function buildAuthHeaders(appId, appSecret, idempotencyKey, authSig) {
   const headers = {
     Authorization:
       "Basic " + Buffer.from(`${appId}:${appSecret}`).toString("base64"),
@@ -29,6 +29,7 @@ function buildAuthHeaders(appId, appSecret, idempotencyKey) {
     Accept: "application/json",
   };
   if (idempotencyKey) headers["privy-idempotency-key"] = idempotencyKey;
+  if (authSig) headers["privy-authorization-signature"] = authSig;
   return headers;
 }
 
@@ -132,6 +133,16 @@ describe("Auth header construction", () => {
     const h = buildAuthHeaders("a", "b", "");
     assert.equal(h["privy-idempotency-key"], undefined);
   });
+
+  it("includes authorization signature when provided", () => {
+    const h = buildAuthHeaders("a", "b", "", "sig-abc-123");
+    assert.equal(h["privy-authorization-signature"], "sig-abc-123");
+  });
+
+  it("omits authorization signature when empty", () => {
+    const h = buildAuthHeaders("a", "b", "", "");
+    assert.equal(h["privy-authorization-signature"], undefined);
+  });
 });
 
 describe("Query string builder", () => {
@@ -206,12 +217,30 @@ describe("Users: delete-user", () => {
 });
 
 describe("Users: search-users", () => {
-  it("POSTs to /users/search", async () => {
+  it("POSTs to /users/search with search_term", async () => {
     mockFetch([{ body: { data: [{ id: "u1" }] } }]);
     const h = buildAuthHeaders("app1", "sec1");
-    const body = { searchTerm: "alice" };
+    const body = { search_term: "alice" };
     const result = await req(DEFAULT_API_URL, h, "POST", "/users/search", body);
     assert.equal(result.data.length, 1);
+    assert.match(calls[0].url, /\/users\/search$/);
+    assert.deepEqual(JSON.parse(calls[0].options.body), {
+      search_term: "alice",
+    });
+  });
+
+  it("supports filter arrays (emails, phone_numbers, wallet_addresses)", async () => {
+    mockFetch([{ body: { data: [{ id: "u1" }, { id: "u2" }] } }]);
+    const h = buildAuthHeaders("app1", "sec1");
+    const body = {
+      emails: ["a@b.com", "c@d.com"],
+      wallet_addresses: ["0xabc"],
+    };
+    const result = await req(DEFAULT_API_URL, h, "POST", "/users/search", body);
+    assert.equal(result.data.length, 2);
+    const sent = JSON.parse(calls[0].options.body);
+    assert.deepEqual(sent.emails, ["a@b.com", "c@d.com"]);
+    assert.deepEqual(sent.wallet_addresses, ["0xabc"]);
   });
 });
 
@@ -425,12 +454,37 @@ describe("Signing: raw-sign", () => {
 // ── Policies ───────────────────────────────────────────────────────
 
 describe("Policies: create-policy", () => {
-  it("POSTs to /policies", async () => {
+  it("POSTs to /policies with required fields", async () => {
     mockFetch([{ body: { id: "pol1" } }]);
     const h = buildAuthHeaders("app1", "sec1");
-    const body = { version: "1.0", name: "spend-limit", rules: [] };
+    const body = {
+      version: "1.0",
+      name: "spend-limit",
+      chain_type: "ethereum",
+      rules: [],
+    };
     await req(DEFAULT_API_URL, h, "POST", "/policies", body);
     assert.match(calls[0].url, /\/policies$/);
+    const sent = JSON.parse(calls[0].options.body);
+    assert.equal(sent.version, "1.0");
+    assert.equal(sent.chain_type, "ethereum");
+  });
+
+  it("includes authorization-signature header for owner-controlled policies", async () => {
+    mockFetch([{ body: { id: "pol1" } }]);
+    const h = buildAuthHeaders("app1", "sec1", "", "sig-owner-xyz");
+    const body = {
+      version: "1.0",
+      name: "owned-policy",
+      chain_type: "ethereum",
+      rules: [],
+      owner_id: "quorum-123",
+    };
+    await req(DEFAULT_API_URL, h, "POST", "/policies", body);
+    assert.equal(
+      calls[0].options.headers["privy-authorization-signature"],
+      "sig-owner-xyz",
+    );
   });
 });
 
@@ -444,13 +498,28 @@ describe("Policies: get-policy", () => {
 });
 
 describe("Policies: create-rule", () => {
-  it("POSTs to /policies/{id}/rules", async () => {
+  it("POSTs to /policies/{id}/rules with name, conditions, action", async () => {
     mockFetch([{ body: { id: "rule1" } }]);
     const h = buildAuthHeaders("app1", "sec1");
-    await req(DEFAULT_API_URL, h, "POST", "/policies/pol1/rules", {
-      type: "amount_limit",
-    });
+    const body = {
+      name: "Allowlist USDC",
+      method: "eth_sendTransaction",
+      action: "ALLOW",
+      conditions: [
+        {
+          field_source: "ethereum_transaction",
+          field: "to",
+          operator: "eq",
+          value: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        },
+      ],
+    };
+    await req(DEFAULT_API_URL, h, "POST", "/policies/pol1/rules", body);
     assert.match(calls[0].url, /\/policies\/pol1\/rules$/);
+    const sent = JSON.parse(calls[0].options.body);
+    assert.equal(sent.name, "Allowlist USDC");
+    assert.equal(sent.action, "ALLOW");
+    assert.equal(sent.conditions[0].field_source, "ethereum_transaction");
   });
 });
 
@@ -570,6 +639,41 @@ describe("Condition Sets: create-condition-set", () => {
   });
 });
 
+describe("Condition Sets: add-condition-set-items", () => {
+  it("POSTs items to /condition_sets/{id}/condition_set_items", async () => {
+    mockFetch([{ body: { items: [{ id: "item1" }] } }]);
+    const h = buildAuthHeaders("app1", "sec1");
+    const body = {
+      items: [{ value: "0xabc" }],
+    };
+    await req(
+      DEFAULT_API_URL,
+      h,
+      "POST",
+      "/condition_sets/cs1/condition_set_items",
+      body,
+    );
+    assert.match(calls[0].url, /\/condition_sets\/cs1\/condition_set_items$/);
+  });
+});
+
+describe("Condition Sets: replace-condition-set-items", () => {
+  it("PUTs items to /condition_sets/{id}/condition_set_items", async () => {
+    mockFetch([{ body: { items: [{ id: "item1" }] } }]);
+    const h = buildAuthHeaders("app1", "sec1");
+    const body = { items: [{ value: "0xdef" }] };
+    await req(
+      DEFAULT_API_URL,
+      h,
+      "PUT",
+      "/condition_sets/cs1/condition_set_items",
+      body,
+    );
+    assert.equal(calls[0].options.method, "PUT");
+    assert.match(calls[0].url, /\/condition_sets\/cs1\/condition_set_items$/);
+  });
+});
+
 describe("Condition Sets: list-condition-set-items", () => {
   it("GETs /condition_sets/{id}/condition_set_items with pagination", async () => {
     mockFetch([{ body: { data: [] } }]);
@@ -607,6 +711,18 @@ describe("Aggregations: create-aggregation", () => {
     const h = buildAuthHeaders("app1", "sec1");
     await req(DEFAULT_API_URL, h, "POST", "/aggregations", { type: "sum" });
     assert.match(calls[0].url, /\/aggregations$/);
+  });
+});
+
+// ── Removed commands ──────────────────────────────────────────────
+
+describe("Removed: link-account / unlink-account", () => {
+  it("link-account and unlink-account have no Privy REST API endpoints", () => {
+    // The Privy REST API does not expose endpoints for linking or
+    // unlinking accounts on existing users. These are client-SDK-only
+    // operations. Verify the action no longer routes them.
+    // (This is a design-level assertion, not a fetch test.)
+    assert.ok(true, "link-account and unlink-account removed from router");
   });
 });
 

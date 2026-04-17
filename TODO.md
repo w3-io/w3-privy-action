@@ -15,16 +15,18 @@ or request those specific capabilities on Privy's dashboard.
 - [ ] Transaction submission — `eth-send-transaction`,
       `solana-send-transaction`. Same chain.
 
-## API format divergence — needs investigation
+## API format divergence — resolved
 
-- [ ] Policy / rule / condition commands — `create-policy`,
-      `create-rule`, `create-condition-set`, etc. Current skip note
-      cites "API format differences." Spec a sandbox test and see
-      what Privy actually wants; fix the action's request shapes.
-- [ ] `search-users` — "requires specific query format." Same
-      investigation applies.
-- [ ] `link-account` / `unlink-account` — "requires specific
-      linked_account format." Same.
+- [x] Policy / rule / condition commands — endpoints and methods
+      were correct. Added `authorization-signature` input for
+      owner-controlled policy operations that need the
+      `privy-authorization-signature` header.
+- [x] `search-users` — endpoint (`POST /users/search`) was correct.
+      Body uses `search_term`, `emails`, `phone_numbers`,
+      `wallet_addresses` fields. Fixed test to use correct field names.
+- [x] `link-account` / `unlink-account` — removed. The Privy REST
+      API has no endpoints for linking or unlinking accounts on
+      existing users. These are client-SDK-only operations.
 
 ## Unblockable with linked accounts
 

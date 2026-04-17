@@ -469,10 +469,7 @@ commands:
         description: "{data: [transactions], next_cursor}"
   - name: set-user-metadata
     description: Set user metadata.
-  - name: link-account
-    description: Link account.
-  - name: unlink-account
-    description: Unlink account.
+  # link-account and unlink-account removed: no Privy REST API endpoints
   - name: pregenerate-wallets
     description: Pregenerate wallets.
   - name: get-user-by-phone

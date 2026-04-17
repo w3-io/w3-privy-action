@@ -149,35 +149,36 @@ Privy wallet infrastructure -- users, wallets, EVM/Solana/Bitcoin signing, polic
 
 ## Inputs
 
-| Name               | Required | Default                   | Description                                         |
-| ------------------ | -------- | ------------------------- | --------------------------------------------------- |
-| `command`          | Yes      |                           | Operation to perform (54 commands)                  |
-| `app-id`           | Yes      |                           | Privy App ID                                        |
-| `app-secret`       | Yes      |                           | Privy App Secret                                    |
-| `api-url`          | No       | `https://api.privy.io/v1` | Privy API base URL                                  |
-| `body`             | No       |                           | Request body as JSON                                |
-| `user-id`          | No       |                           | User ID (Privy DID)                                 |
-| `wallet-id`        | No       |                           | Wallet ID                                           |
-| `policy-id`        | No       |                           | Policy ID                                           |
-| `rule-id`          | No       |                           | Rule ID (within a policy)                           |
-| `quorum-id`        | No       |                           | Key quorum ID                                       |
-| `intent-id`        | No       |                           | Intent ID                                           |
-| `transaction-id`   | No       |                           | Transaction ID                                      |
-| `vault-id`         | No       |                           | ERC-4626 vault ID                                   |
-| `condition-set-id` | No       |                           | Condition set ID                                    |
-| `chain-type`       | No       |                           | Chain type (ethereum, solana, bitcoin-segwit, etc.) |
-| `address`          | No       |                           | Blockchain address                                  |
-| `email`            | No       |                           | User email                                          |
-| `phone`            | No       |                           | User phone number                                   |
-| `caip2`            | No       |                           | CAIP-2 chain identifier (e.g. `eip155:1`)           |
-| `method`           | No       |                           | RPC method name                                     |
-| `cursor`           | No       |                           | Pagination cursor                                   |
-| `limit`            | No       |                           | Page size (max 100)                                 |
-| `idempotency-key`  | No       |                           | Idempotency key for write operations                |
-| `chain`            | No       |                           | Chain for balance queries                           |
-| `token`            | No       |                           | Token address for balance queries                   |
-| `asset`            | No       |                           | Asset type for balance queries                      |
-| `provider`         | No       |                           | KYC provider (`bridge` or `bridge-sandbox`)         |
+| Name                      | Required | Default                   | Description                                                          |
+| ------------------------- | -------- | ------------------------- | -------------------------------------------------------------------- |
+| `command`                 | Yes      |                           | Operation to perform (52 commands)                                   |
+| `app-id`                  | Yes      |                           | Privy App ID                                                         |
+| `app-secret`              | Yes      |                           | Privy App Secret                                                     |
+| `api-url`                 | No       | `https://api.privy.io/v1` | Privy API base URL                                                   |
+| `body`                    | No       |                           | Request body as JSON                                                 |
+| `user-id`                 | No       |                           | User ID (Privy DID)                                                  |
+| `wallet-id`               | No       |                           | Wallet ID                                                            |
+| `policy-id`               | No       |                           | Policy ID                                                            |
+| `rule-id`                 | No       |                           | Rule ID (within a policy)                                            |
+| `quorum-id`               | No       |                           | Key quorum ID                                                        |
+| `intent-id`               | No       |                           | Intent ID                                                            |
+| `transaction-id`          | No       |                           | Transaction ID                                                       |
+| `vault-id`                | No       |                           | ERC-4626 vault ID                                                    |
+| `condition-set-id`        | No       |                           | Condition set ID                                                     |
+| `chain-type`              | No       |                           | Chain type (ethereum, solana, bitcoin-segwit, etc.)                  |
+| `address`                 | No       |                           | Blockchain address                                                   |
+| `email`                   | No       |                           | User email                                                           |
+| `phone`                   | No       |                           | User phone number                                                    |
+| `caip2`                   | No       |                           | CAIP-2 chain identifier (e.g. `eip155:1`)                            |
+| `method`                  | No       |                           | RPC method name                                                      |
+| `cursor`                  | No       |                           | Pagination cursor                                                    |
+| `limit`                   | No       |                           | Page size (max 100)                                                  |
+| `idempotency-key`         | No       |                           | Idempotency key for write operations                                 |
+| `chain`                   | No       |                           | Chain for balance queries                                            |
+| `token`                   | No       |                           | Token address for balance queries                                    |
+| `asset`                   | No       |                           | Asset type for balance queries                                       |
+| `provider`                | No       |                           | KYC provider (`bridge` or `bridge-sandbox`)                          |
+| `authorization-signature` | No       |                           | Privy authorization signature for owner-controlled policy/wallet ops |
 
 ## Outputs
 

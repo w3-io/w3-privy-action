@@ -4,7 +4,7 @@ author: "w3-io"
 
 inputs:
   command:
-    description: "54 commands: users, wallets, EVM/Solana signing, policies, key quorums, intents, yield vaults, fiat/KYC, condition sets"
+    description: "52 commands: users, wallets, EVM/Solana signing, policies, key quorums, intents, yield vaults, fiat/KYC, condition sets"
     required: true
   app-id:
     description: "Privy App ID"
@@ -84,6 +84,9 @@ inputs:
     required: false
   provider:
     description: "KYC provider (bridge or bridge-sandbox)"
+    required: false
+  authorization-signature:
+    description: "Privy authorization signature for owner-controlled policy/wallet operations"
     required: false
 
 outputs:
